@@ -2,9 +2,9 @@ const SOURCE='https://ninjazenshin.online/clan-ranking';
 const decode=s=>s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi,(full,item)=>{if(item[0]==='#'){let n=item[1]?.toLowerCase()==='x'?parseInt(item.slice(2),16):parseInt(item.slice(1),10);return n>0&&n<=0x10ffff?String.fromCodePoint(n):full;}return {amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '}[item.toLowerCase()]??full;});
 const plain=s=>decode(s.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim());
 export function parse(html){
- const season=+(html.match(/(?:Current\\s+)?Season\\s*(\\d+)/i)?.[1]||0)||null;
- const closed=/Season\\s+closed(?:\\s*[—–-]\\s*winners being calculated)?/i.test(html);
- const countdown=html.match(/<[^>]*class=["'][^"']*\\bclr-cd\\b[^"']*["'][^>]*>/i)?.[0]||'';
+ const season=+(html.match(/(?:Current\s+)?Season\s*(\d+)/i)?.[1]||0)||null;
+ const closed=/Season\s+closed(?:\s*[—–-]\s*winners being calculated)?/i.test(html);
+ const countdown=html.match(/<[^>]*class=["'][^"']*\bclr-cd\b[^"']*["'][^>]*>/i)?.[0]||'';
  const endText=countdown.match(/data-end=["']([^"']+)["']/i)?.[1]||null;
  const endDate=endText&&Number.isFinite(Date.parse(endText))?new Date(endText).toISOString():null;
  const seasonStatus=closed?'closed':endDate?'active':'unknown';
