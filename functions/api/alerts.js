@@ -30,10 +30,10 @@ export async function recordTrackingAlerts(env,metadata={}){
  const now=metadata.now||new Date().toISOString();
  const previous=await env.GAINS.get(STATE_KEY,'json');
  const observed={
-  season:Number.isInteger(metadata.official?.season)?metadata.official.season:null,
-  seasonStatus:metadata.official?.seasonStatus||'unknown',
-  seasonEndAt:validateTimestamp(metadata.official?.seasonEndAt),
-  nextSeasonStartAt:validateTimestamp(metadata.official?.nextSeasonStartAt),
+  season:Number.isInteger(metadata.official?.season)?metadata.official.season:previous?.season??null,
+  seasonStatus:metadata.official?.seasonStatus||previous?.seasonStatus||'unknown',
+  seasonEndAt:metadata.official?validateTimestamp(metadata.official.seasonEndAt):previous?.seasonEndAt||null,
+  nextSeasonStartAt:metadata.official?validateTimestamp(metadata.official.nextSeasonStartAt):previous?.nextSeasonStartAt||null,
   trackingState:metadata.error?'error':metadata.skipped?'paused':'healthy',
   error:metadata.error||null,warning:metadata.warning||null
  };
