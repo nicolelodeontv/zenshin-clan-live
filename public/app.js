@@ -6,6 +6,46 @@ const POLL_MS=5000;
 let clans=[], previous=new Map(), busy=false, lastSuccess=0, refreshTimer=null;
 let failures=0;
 const status=$('status'), error=$('error'), updated=$('updated');
+
+let officialSeason={seasonStatus:'unknown',seasonEndAt:null,nextSeasonStartAt:null};
+const sgtTime=iso=>new Date(iso).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT';
+const timeLeft=iso=>{
+ const remaining=Date.parse(iso)-Date.now();
+ if(!Number.isFinite(remaining))return null;
+ if(remaining<=0)return '00d 00h 00m 00s';
+ let seconds=Math.floor(remaining/1000);
+ const d=Math.floor(seconds/86400);seconds%=86400;
+ const h=Math.floor(seconds/3600);seconds%=3600;
+ const m=Math.floor(seconds/60);const sec=seconds%60;
+ return [String(d).padStart(2,'0')+'d',String(h).padStart(2,'0')+'h',String(m).padStart(2,'0')+'m',String(sec).padStart(2,'0')+'s'].join(' ');
+};
+function updateSeasonCountdowns(){
+ const state=officialSeason.seasonStatus;
+ const end=officialSeason.seasonEndAt;
+ const next=officialSeason.nextSeasonStartAt;
+ $('seasonTimerState').textContent=state==='closed'?'Official season closed':state==='active'?'Season running':'Schedule not published';
+ if(state==='closed'){
+  $('seasonEndTimer').textContent='Season closed';
+  $('seasonEndDate').textContent='Winners being calculated · official source';
+ }else if(end){
+  const left=timeLeft(end);
+  $('seasonEndTimer').textContent=left==='00d 00h 00m 00s'?'End time reached · awaiting official confirmation':left||'Unavailable';
+  $('seasonEndDate').textContent='Scheduled end: '+sgtTime(end);
+ }else{
+  $('seasonEndTimer').textContent='Not announced';
+  $('seasonEndDate').textContent='No confirmed end date in the official rankings';
+ }
+ if(next){
+  const left=timeLeft(next);
+  $('seasonStartTimer').textContent=left==='00d 00h 00m 00s'?'Start time reached · awaiting official confirmation':left||'Unavailable';
+  $('seasonStartDate').textContent='Official start: '+sgtTime(next);
+ }else{
+  $('seasonStartTimer').textContent='Awaiting announcement';
+  $('seasonStartDate').textContent='The game has not published a verified next-season start date';
+ }
+}
+setInterval(updateSeasonCountdowns,1000);
+
 function render(){
  const q=$('search').value.toLowerCase().trim();
  const sort=$('sort').value;
@@ -38,7 +78,9 @@ async function sync(){
   previous=new Map(clans.map(c=>[c.id||c.name,c]));
   clans=enrichRankings(body.clans);
   const leader=clans[0],chaos=clans.find(c=>c.name.toLowerCase()==='chaos');
-  $('season').textContent=body.season?'Season '+body.season:'Unknown';
+  officialSeason={seasonStatus:body.seasonStatus||'unknown',seasonEndAt:body.seasonEndAt||null,nextSeasonStartAt:body.nextSeasonStartAt||null};
+  updateSeasonCountdowns();
+  $('season').textContent=body.season?'Season '+body.season:body.seasonStatus==='closed'?'Closed':'Not published';
   $('count').textContent=clans.length;
   $('top').textContent=fmt(leader.reputation);
   $('topName').textContent=leader.name;
