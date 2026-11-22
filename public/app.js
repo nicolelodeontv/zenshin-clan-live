@@ -16,7 +16,7 @@ function render(){
   const gain=old ? c.reputation-old.reputation : null;
   const movement=old ? old.rank-c.rank : 0;
   const chaos=c.name.toLowerCase()==='chaos';
-  const url=c.id?'https://ninjazenshin.online/clan-ranking/members/'+encodeURIComponent(c.id):'https://ninjazenshin.online/?panel=clan-ranking';
+  const link=c.id?'<a href="#members" class="clan-member-link" data-clan-id="'+c.id+'" data-clan-name="'+escapeHtml(c.name)+'" aria-label="View '+escapeHtml(c.name)+' members">'+escapeHtml(c.name)+'</a>':'<span title="Clan ID unavailable">'+escapeHtml(c.name)+'</span>';
   const delta=gain===null?'':gain>0?'<small class="positive"> +'+fmt(gain)+'</small>':gain<0?'<small class="negative"> '+fmt(gain)+'</small>':'';
   const change=movement?'<small class="'+(movement>0?'positive':'negative')+'"> '+(movement>0?'▲':'▼')+Math.abs(movement)+'</small>':'';
   return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td><a href="'+url+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(c.name)+'</a>'+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'</td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
@@ -73,22 +73,48 @@ window.addEventListener('online',()=>{clearTimeout(refreshTimer);sync();});
 setInterval(()=>{if(lastSuccess&&Date.now()-lastSuccess>30000&&!busy){status.textContent='● Data stale';status.className='status negative';}},5000);
 sync();
 
-let memberLoading=false;
+let memberController=null;
+let selectedClanName='Chaos';
 async function loadMembers(){
- if(memberLoading)return;
  const id=$('memberClanId').value.trim();
- if(!/^\d{1,7}$/.test(id)){ $('memberStatus').textContent='Enter a numeric clan ID'; return; }
- memberLoading=true;
- $('memberStatus').textContent='Updating member gains…';
+ if(!/^\\d{1,7}$/.test(id)){ $('memberStatus').textContent='Choose a clan from the leaderboard or enter a numeric clan ID'; return; }
+ if(memberController)memberController.abort();
+ const controller=new AbortController();
+ memberController=controller;
+ $('memberStatus').textContent='Loading '+selectedClanName+' members…';
  try{
-  const response=await fetch('/api/members?id='+encodeURIComponent(id)+'&t='+Date.now(),{cache:'no-store'});
+  const response=await fetch('/api/members?id='+encodeURIComponent(id)+'&t='+Date.now(),{cache:'no-store',signal:controller.signal});
   const body=await response.json();
+  if(controller.signal.aborted)return;
   if(!response.ok||!Array.isArray(body.members))throw Error(body.detail||body.error||'Member data unavailable');
-  $('memberStatus').textContent=(body.clanName||'Clan #'+id)+' · '+body.members.length+' members · '+body.date+' (SGT)';
+  const clanName=body.clanName||selectedClanName||'Clan #'+id;
+  $('membersTitle').textContent=clanName+' · Members';
+  $('memberStatus').textContent=clanName+' · '+body.members.length+' members · '+body.date+' (SGT)';
   $('memberRows').innerHTML=body.members.map((m,index)=>'<tr><td>'+(index+1)+'</td><td>'+escapeHtml(m.name)+'</td><td>'+m.level+'</td><td>'+fmt(m.rep)+'</td><td class="'+(m.gain>0?'positive':'')+'">'+(m.gain===null?'—':'+'+fmt(m.gain))+'</td></tr>').join('');
   $('memberFoot').textContent='*Tracked since '+new Date(body.baselineAt).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT. New members show — until a baseline exists. Auto-updating while visible.';
- }catch(e){$('memberStatus').textContent='Member source error: '+e.message;}finally{memberLoading=false;}
+ }catch(e){if(e.name!=='AbortError'&&!controller.signal.aborted)$('memberStatus').textContent='Member source error: '+e.message;}
+ finally{if(memberController===controller)memberController=null;}
 }
-$('memberLoad').addEventListener('click',loadMembers);
+function selectClan(id,name){
+ $('memberClanId').value=id;
+ selectedClanName=name;
+ $('membersTitle').textContent=name+' · Members';
+ $('memberRows').innerHTML='<tr><td colspan="5">Loading '+escapeHtml(name)+' members…</td></tr>';
+ loadMembers();
+ $('members').scrollIntoView({behavior:'smooth',block:'start'});
+ if(history.replaceState)history.replaceState(null,'','#members');
+}
+$('rows').addEventListener('click',event=>{
+ const link=event.target.closest('.clan-member-link');
+ if(!link)return;
+ event.preventDefault();
+ selectClan(link.dataset.clanId,link.dataset.clanName);
+});
+$('memberLoad').addEventListener('click',()=>{
+ const id=$('memberClanId').value.trim();
+ selectedClanName=clans.find(c=>String(c.id)===id)?.name||'Clan #'+id;
+ $('membersTitle').textContent=selectedClanName+' · Members';
+ loadMembers();
+});
 loadMembers();
-setInterval(()=>{if(!document.hidden)loadMembers();},5000);
+setInterval(()=>{if(!document.hidden&&!memberController)loadMembers();},5000);
