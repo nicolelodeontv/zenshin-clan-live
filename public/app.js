@@ -1,0 +1,80 @@
+import {enrichRankings,formatGap} from './ranking-math.js';
+const $=id=>document.getElementById(id);
+const fmt=n=>Number(n||0).toLocaleString('en-US');
+const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+const POLL_MS=30000;
+let clans=[], previous=new Map(), busy=false, lastSuccess=0, refreshTimer=null, countdownTimer=null;
+let failures=0;
+const status=$('status'), error=$('error'), updated=$('updated');
+function render(){
+ const q=$('search').value.toLowerCase().trim();
+ const sort=$('sort').value;
+ const filtered=clans.filter(c=>(c.name+' '+c.master).toLowerCase().includes(q));
+ filtered.sort((a,b)=>sort==='rep'?b.reputation-a.reputation:sort==='members'?(b.members??0)-(a.members??0):a.rank-b.rank);
+ $('rows').innerHTML=filtered.map(c=>{
+  const old=previous.get(c.id||c.name);
+  const gain=old ? c.reputation-old.reputation : null;
+  const movement=old ? old.rank-c.rank : 0;
+  const chaos=c.name.toLowerCase()==='chaos';
+  const url=c.id?'https://ninjazenshin.online/clan-ranking/members/'+encodeURIComponent(c.id):'https://ninjazenshin.online/?panel=clan-ranking';
+  const delta=gain===null?'':gain>0?'<small class="positive"> +'+fmt(gain)+'</small>':gain<0?'<small class="negative"> '+fmt(gain)+'</small>':'';
+  const change=movement?'<small class="'+(movement>0?'positive':'negative')+'"> '+(movement>0?'▲':'▼')+Math.abs(movement)+'</small>':'';
+  return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td><a href="'+url+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(c.name)+'</a>'+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'</td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
+ }).join('')||'<tr><td colspan="7">No matching clans</td></tr>';
+}
+function timerLabel(){
+ const seconds=Math.max(0,Math.ceil((lastSuccess+POLL_MS-Date.now())/1000));
+ $('countdown').textContent=busy?'Refreshing…':lastSuccess?'Next refresh in '+seconds+'s':'Connecting…';
+ if(lastSuccess&&Date.now()-lastSuccess>90000){status.textContent='● Data stale';status.className='status negative';}
+}
+function schedule(ms=POLL_MS){clearTimeout(refreshTimer);refreshTimer=setTimeout(sync,ms);timerLabel();}
+async function sync(){
+ if(busy)return;
+ busy=true;
+ $('refresh').disabled=true;
+ status.textContent='● Refreshing…';
+ timerLabel();
+ const abort=new AbortController();
+ const timeout=setTimeout(()=>abort.abort(),14000);
+ try{
+  const response=await fetch('/api/clans?t='+Date.now(),{cache:'no-store',signal:abort.signal});
+  const body=await response.json();
+  if(!response.ok||!Array.isArray(body.clans))throw Error(body.detail||body.error||'Invalid ranking data');
+  if(!body.clans.length)throw Error('Ranking list is empty');
+  previous=new Map(clans.map(c=>[c.id||c.name,c]));
+  clans=enrichRankings(body.clans);
+  const leader=clans[0],chaos=clans.find(c=>c.name.toLowerCase()==='chaos');
+  $('season').textContent=body.season?'Season '+body.season:'Unknown';
+  $('count').textContent=clans.length;
+  $('top').textContent=fmt(leader.reputation);
+  $('topName').textContent=leader.name;
+  $('chaos').textContent=chaos?'#'+chaos.rank:'—';
+  $('chaosRep').textContent=chaos?fmt(chaos.reputation)+' rep · '+fmt(chaos.gapToLeader)+' behind #1':'Not ranked';
+  const received=Date.parse(body.updatedAt);
+  lastSuccess=Number.isFinite(received)?received:Date.now();
+  $('updated').textContent='Latest source fetch: '+new Date(lastSuccess).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT · Auto-refresh every 30 seconds';
+  status.textContent='● Live polling';
+  status.className='status positive';
+  error.style.display='none';
+  failures=0;
+  render();
+ }catch(e){
+  failures++;
+  status.textContent='● Connection error';
+  status.className='status negative';
+  error.style.display='block';
+  error.textContent='Live source unavailable: '+(e.name==='AbortError'?'request timed out':e.message)+(clans.length?'. Displaying last successful rankings.':'');
+ }finally{
+  clearTimeout(timeout);
+  busy=false;
+  $('refresh').disabled=false;
+  schedule(POLL_MS);
+ }
+}
+$('search').addEventListener('input',render);
+$('sort').addEventListener('change',render);
+$('refresh').addEventListener('click',()=>{clearTimeout(refreshTimer);sync();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&(!lastSuccess||Date.now()-lastSuccess>=POLL_MS)){clearTimeout(refreshTimer);sync();}});
+window.addEventListener('online',()=>{clearTimeout(refreshTimer);sync();});
+countdownTimer=setInterval(timerLabel,1000);
+sync();
