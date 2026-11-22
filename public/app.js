@@ -2,8 +2,8 @@ import {enrichRankings,formatGap} from './ranking-math.js';
 const $=id=>document.getElementById(id);
 const fmt=n=>Number(n||0).toLocaleString('en-US');
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
-const POLL_MS=30000;
-let clans=[], previous=new Map(), busy=false, lastSuccess=0, refreshTimer=null, countdownTimer=null;
+const POLL_MS=5000;
+let clans=[], previous=new Map(), busy=false, lastSuccess=0, refreshTimer=null;
 let failures=0;
 const status=$('status'), error=$('error'), updated=$('updated');
 function render(){
@@ -22,18 +22,12 @@ function render(){
   return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td><a href="'+url+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(c.name)+'</a>'+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'</td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
  }).join('')||'<tr><td colspan="7">No matching clans</td></tr>';
 }
-function timerLabel(){
- const seconds=Math.max(0,Math.ceil((lastSuccess+POLL_MS-Date.now())/1000));
- $('countdown').textContent=busy?'Refreshing…':lastSuccess?'Next refresh in '+seconds+'s':'Connecting…';
- if(lastSuccess&&Date.now()-lastSuccess>90000){status.textContent='● Data stale';status.className='status negative';}
-}
-function schedule(ms=POLL_MS){clearTimeout(refreshTimer);refreshTimer=setTimeout(sync,ms);timerLabel();}
+function schedule(ms=POLL_MS){clearTimeout(refreshTimer);if(!document.hidden) refreshTimer=setTimeout(sync,ms);}
 async function sync(){
  if(busy)return;
  busy=true;
  $('refresh').disabled=true;
  status.textContent='● Refreshing…';
- timerLabel();
  const abort=new AbortController();
  const timeout=setTimeout(()=>abort.abort(),14000);
  try{
@@ -52,7 +46,7 @@ async function sync(){
   $('chaosRep').textContent=chaos?fmt(chaos.reputation)+' rep · '+fmt(chaos.gapToLeader)+' behind #1':'Not ranked';
   const received=Date.parse(body.updatedAt);
   lastSuccess=Number.isFinite(received)?received:Date.now();
-  $('updated').textContent='Latest source fetch: '+new Date(lastSuccess).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT · Auto-refresh every 30 seconds';
+  $('updated').textContent='Latest source fetch: '+new Date(lastSuccess).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT · Live auto-updates';
   status.textContent='● Live polling';
   status.className='status positive';
   error.style.display='none';
@@ -68,13 +62,13 @@ async function sync(){
   clearTimeout(timeout);
   busy=false;
   $('refresh').disabled=false;
-  schedule(POLL_MS);
+  schedule(failures?Math.min(30000,POLL_MS*Math.pow(2,Math.min(failures,3))):POLL_MS);
  }
 }
 $('search').addEventListener('input',render);
 $('sort').addEventListener('change',render);
 $('refresh').addEventListener('click',()=>{clearTimeout(refreshTimer);sync();});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&(!lastSuccess||Date.now()-lastSuccess>=POLL_MS)){clearTimeout(refreshTimer);sync();}});
+document.addEventListener('visibilitychange',()=>{clearTimeout(refreshTimer);if(!document.hidden)sync();});
 window.addEventListener('online',()=>{clearTimeout(refreshTimer);sync();});
-countdownTimer=setInterval(timerLabel,1000);
+setInterval(()=>{if(lastSuccess&&Date.now()-lastSuccess>30000&&!busy){status.textContent='● Data stale';status.className='status negative';}},5000);
 sync();
