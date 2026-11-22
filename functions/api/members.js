@@ -8,7 +8,7 @@ export async function membersResponse(request,env){
  try{
   const state=await readSeasonState(env);
   const season=state?.season||null;
-  if(expected&&/^\\d+$/.test(expected)&&Number(expected)!==season){
+  if(expected&&/^[0-9]+$/.test(expected)&&Number(expected)!==season){
    return Response.json({error:'Season change pending verification',expectedSeason:Number(expected),trackedSeason:season},{status:409,headers:{'Cache-Control':'no-store'}});
   }
   const upstream=await fetch(memberUrl(id),{headers:{Accept:'application/json','User-Agent':'ClanLiveDashboard/1.1'},signal:AbortSignal.timeout(12000),cache:'no-store'});
