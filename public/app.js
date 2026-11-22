@@ -72,3 +72,23 @@ document.addEventListener('visibilitychange',()=>{clearTimeout(refreshTimer);if(
 window.addEventListener('online',()=>{clearTimeout(refreshTimer);sync();});
 setInterval(()=>{if(lastSuccess&&Date.now()-lastSuccess>30000&&!busy){status.textContent='● Data stale';status.className='status negative';}},5000);
 sync();
+
+let memberLoading=false;
+async function loadMembers(){
+ if(memberLoading)return;
+ const id=$('memberClanId').value.trim();
+ if(!/^\d{1,7}$/.test(id)){ $('memberStatus').textContent='Enter a numeric clan ID'; return; }
+ memberLoading=true;
+ $('memberStatus').textContent='Updating member gains…';
+ try{
+  const response=await fetch('/api/members?id='+encodeURIComponent(id)+'&t='+Date.now(),{cache:'no-store'});
+  const body=await response.json();
+  if(!response.ok||!Array.isArray(body.members))throw Error(body.detail||body.error||'Member data unavailable');
+  $('memberStatus').textContent=(body.clanName||'Clan #'+id)+' · '+body.members.length+' members · '+body.date+' (SGT)';
+  $('memberRows').innerHTML=body.members.map((m,index)=>'<tr><td>'+(index+1)+'</td><td>'+escapeHtml(m.name)+'</td><td>'+m.level+'</td><td>'+fmt(m.rep)+'</td><td class="'+(m.gain>0?'positive':'')+'">'+(m.gain===null?'—':'+'+fmt(m.gain))+'</td></tr>').join('');
+  $('memberFoot').textContent='*Tracked since '+new Date(body.baselineAt).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT. New members show — until a baseline exists. Auto-updating while visible.';
+ }catch(e){$('memberStatus').textContent='Member source error: '+e.message;}finally{memberLoading=false;}
+}
+$('memberLoad').addEventListener('click',loadMembers);
+loadMembers();
+setInterval(()=>{if(!document.hidden)loadMembers();},5000);
