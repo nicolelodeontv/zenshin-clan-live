@@ -38,3 +38,17 @@ test('events persist and the public alerts endpoint is read only',async()=>{
  assert.equal(parsed.official.seasonStatus,'closed');
  assert.equal(parsed.events.length>=1,true);
 });
+
+test('identical routine observations do not consume another KV write',async()=>{
+ const values=new Map();
+ let writes=0;
+ const env={GAINS:{
+  async get(k){return values.has(k)?JSON.parse(values.get(k)):null;},
+  async put(k,v){writes++;values.set(k,v);}
+ }};
+ const official={season:5,seasonStatus:'active',seasonEndAt:null,nextSeasonStartAt:null};
+ await recordTrackingAlerts(env,{now:'2026-11-23T08:00:00Z',official});
+ assert.equal(writes,1);
+ await recordTrackingAlerts(env,{now:'2026-11-23T08:05:00Z',official});
+ assert.equal(writes,1);
+});
