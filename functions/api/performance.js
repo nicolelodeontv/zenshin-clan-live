@@ -1,9 +1,9 @@
+import {storageKey,sgtDate,readSeasonState} from './season.js';
 // Read-only analysis of recorded CHAOS snapshots. Missing coverage is not guessed.
 const HOURS=[1,3,6,24];
 const MIN_RATE_MS=5*60*1000;
 const MAX_ANCHOR_GAP_MS=15*60*1000;
 const DAY_MS=86400000;
-function sgtDay(date){const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Singapore',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));return parts.year+'-'+parts.month+'-'+parts.day;}
 function finite(x){return typeof x==='number'&&Number.isFinite(x)?x:null;}
 function pointValue(p,name){return finite(p?.values?.[name]);}
 export function analyzeSnapshots(snapshots,baseline={},now=new Date()){
@@ -47,15 +47,19 @@ export function analyzeSnapshots(snapshots,baseline={},now=new Date()){
  return {members:metrics,series,totalRatePerHour,coverageMinutes:Math.floor(elapsed/60000),hasHistory:ordered.length>=2,firstSnapshot:earliest.at,lastSnapshot:newest.at,snapshots:ordered.length};
 }
 export async function performanceResponse(request,env){
- const id=new URL(request.url).searchParams.get('id')||'3';
+ const params=new URL(request.url).searchParams;
+ const id=params.get('id')||'3';
+ const expected=params.get('season');
  if(id!=='3')return Response.json({error:'Scheduled history is currently available for CHAOS (ID 3) only.'},{status:400,headers:{'Cache-Control':'no-store'}});
  if(!env.GAINS)return Response.json({error:'Tracking storage not configured'},{status:503});
  try{
-  const now=new Date(),today=sgtDay(now),yesterday=sgtDay(new Date(now.getTime()-DAY_MS));
-  const keys=['member-history:'+yesterday+':3','member-history:'+today+':3','member-baseline:'+today+':3'];
+  const state=await readSeasonState(env);const season=state?.season||null;
+  if(expected&&/^[0-9]+$/.test(expected)&&Number(expected)!==season)return Response.json({error:'Season transition pending verification',expectedSeason:Number(expected),trackedSeason:season},{status:409,headers:{'Cache-Control':'no-store'}});
+  const now=new Date(),today=sgtDate(now),yesterday=sgtDate(new Date(now.getTime()-DAY_MS));
+  const keys=[storageKey('member-history',yesterday,'3',season),storageKey('member-history',today,'3',season),storageKey('member-baseline',today,'3',season)];
   const [prior,current,baseline]=await Promise.all(keys.map(key=>env.GAINS.get(key,'json')));
   const combined=[...(prior?.snapshots||[]),...(current?.snapshots||[])].filter(p=>Date.parse(p.at)>=now.getTime()-DAY_MS-1800000);
   const analysis=analyzeSnapshots(combined,baseline||{},now);
-  return Response.json({clanId:'3',date:today,baselineAt:baseline?.capturedAt||null,updatedAt:now.toISOString(),...analysis,disclaimer:'REP gains are observed from stored snapshots only. No samples, exact inactivity time, or competitor rates are inferred.',target:10000},{headers:{'Cache-Control':'no-store'}});
+  return Response.json({clanId:'3',season,date:today,baselineAt:baseline?.capturedAt||null,updatedAt:now.toISOString(),...analysis,disclaimer:'REP gains are observed from stored snapshots only. No samples, exact inactivity time, or competitor rates are inferred.',target:10000},{headers:{'Cache-Control':'no-store'}});
  }catch(e){return Response.json({error:'History unavailable',detail:String(e.message||e)},{status:502,headers:{'Cache-Control':'no-store'}});}
 }
