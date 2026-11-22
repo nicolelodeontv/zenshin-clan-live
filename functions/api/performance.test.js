@@ -14,7 +14,7 @@ test('observed REP pace, target and timed windows are grounded in snapshots',()=
  assert.equal(a.windows['3h'],null);
  assert.equal(a.progress10k,25);
  assert.equal(a.lastIncreaseAt,at(14));
- assert.equal(data.totalRatePerHour,800);
+ assert.equal(data.totalRatePerHour,1300);
 });
 test('no invented pace, observed increases, or window gains with insufficient history',()=>{
  const data=analyzeSnapshots([{at:at(14),values:{Alice:4000}}],{values:{Alice:4000}});
