@@ -85,9 +85,11 @@ async function updateTrackingStatus(id){
   const response=await fetch('/api/tracking-status',{cache:'no-store'});
   if(!response.ok)throw Error('Tracking status unavailable');
   const data=await response.json();
-  el.textContent=data.lastSnapshot
-    ?'24/7 CHAOS snapshots: '+(data.active?'Active':'Last check aging')+' · last '+new Date(data.lastSnapshot).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT · '+data.snapshotsToday+' today · every 5 min'
-    :'24/7 CHAOS tracking configured · waiting for first scheduled snapshot (every 5 min)';
+  el.textContent=data.lastError
+    ?'24/7 tracking error: '+data.lastError
+    :data.lastScheduledSuccess
+      ?'24/7 CHAOS tracking: '+(data.active?'Active':'Last check aging')+' · last successful cron '+new Date(data.lastScheduledSuccess).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT · '+data.snapshotsToday+' snapshots today'
+      :'24/7 CHAOS tracking configured · awaiting first verified scheduled execution';
  }catch(e){el.textContent='24/7 tracking status temporarily unavailable';}
 }
 
