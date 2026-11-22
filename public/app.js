@@ -75,6 +75,22 @@ sync();
 
 let memberController=null;
 let selectedClanName='Chaos';
+let trackingStatusFetchedAt=0;
+async function updateTrackingStatus(id){
+ const el=$('backgroundTracking');
+ if(id!=='3'){el.textContent='Background snapshots: CHAOS only. This clan tracks gains from its first daily visit.';return;}
+ if(Date.now()-trackingStatusFetchedAt<20000)return;
+ trackingStatusFetchedAt=Date.now();
+ try{
+  const response=await fetch('/api/tracking-status',{cache:'no-store'});
+  if(!response.ok)throw Error('Tracking status unavailable');
+  const data=await response.json();
+  el.textContent=data.lastSnapshot
+    ?'24/7 CHAOS snapshots: '+(data.active?'Active':'Last check aging')+' · last '+new Date(data.lastSnapshot).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT · '+data.snapshotsToday+' today · every 5 min'
+    :'24/7 CHAOS tracking configured · waiting for first scheduled snapshot (every 5 min)';
+ }catch(e){el.textContent='24/7 tracking status temporarily unavailable';}
+}
+
 async function loadMembers(){
  if(!$('memberDialog').open)return;
  const id=$('memberClanId').value.trim();
@@ -99,6 +115,8 @@ async function loadMembers(){
 function selectClan(id,name){
  $('memberClanId').value=id;
  selectedClanName=name;
+ trackingStatusFetchedAt=0;
+ updateTrackingStatus(id);
  $('membersTitle').textContent=name+' · Members';
  $('memberRows').innerHTML='<tr><td colspan="5">Loading '+escapeHtml(name)+' members…</td></tr>';
  if(!$('memberDialog').open)$('memberDialog').showModal();
@@ -116,7 +134,9 @@ $('memberDialog').addEventListener('close',()=>{if(memberController)memberContro
 $('memberLoad').addEventListener('click',()=>{
  const id=$('memberClanId').value.trim();
  selectedClanName=clans.find(c=>String(c.id)===id)?.name||'Clan #'+id;
+ trackingStatusFetchedAt=0;
+ updateTrackingStatus(id);
  $('membersTitle').textContent=selectedClanName+' · Members';
  loadMembers();
 });
-setInterval(()=>{if(!document.hidden&&$('memberDialog').open&&!memberController)loadMembers();},5000);
+setInterval(()=>{if(!document.hidden&&$('memberDialog').open&&!memberController){loadMembers();updateTrackingStatus($('memberClanId').value.trim());}},5000);
