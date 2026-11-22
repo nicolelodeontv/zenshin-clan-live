@@ -132,7 +132,10 @@ let fdObservedRate=null;
 let trackingStatusFetchedAt=0;
 async function updateTrackingStatus(id){
  const el=$('backgroundTracking');
- if(id!=='3'){el.textContent='Background snapshots: CHAOS only. This clan tracks gains from its first daily visit.';return;}
+ if(id!=='3'){
+  el.textContent='Rotating background tracking · checking saved clan samples…';
+  return;
+ }
  if(Date.now()-trackingStatusFetchedAt<20000)return;
  trackingStatusFetchedAt=Date.now();
  try{
@@ -164,11 +167,12 @@ async function loadMembers(){
   if(controller.signal.aborted)return;
   if(!response.ok||!Array.isArray(body.members))throw Error(body.detail||body.error||'Member data unavailable');
   const clanName=body.clanName||selectedClanName||'Clan #'+id;
+  if(id!=='3')$('backgroundTracking').textContent=body.backgroundSampleAt?'Rotating history · last saved '+sgtTime(body.backgroundSampleAt)+' · approx '+(body.backgroundCycleMinutes||55)+' min per full cycle':'Rotating history · no scheduled sample saved for this clan today yet';
   $('membersTitle').textContent=clanName+' · Members';
   $('memberStatus').textContent=clanName+' · '+body.members.length+' members · '+body.date+' (SGT)';
   memberRecords=body.members;
   drawMemberRows();
-  if(id==='3'&&performanceLoadedFor!=='3')loadPerformance();
+  if(performanceLoadedFor!==id)loadPerformance();
   $('memberFoot').textContent='*Tracked since '+new Date(body.baselineAt).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT. New members show — until a baseline exists. Auto-updating while visible.';
  }catch(e){if(e.name!=='AbortError'&&!controller.signal.aborted)$('memberStatus').textContent='Member source error: '+e.message;}
  finally{if(memberController===controller)memberController=null;}
@@ -184,7 +188,7 @@ function selectClan(id,name){
  performanceLoadedFor=null;
  $('memberRows').innerHTML='<tr><td colspan="8">Loading '+escapeHtml(name)+' members…</td></tr>';
  if(!$('memberDialog').open)$('memberDialog').showModal();
- if(id==='3')loadPerformance();else clearPerformance();
+ loadPerformance();
  loadMembers();
 }
 $('rows').addEventListener('click',event=>{
@@ -205,15 +209,15 @@ $('memberLoad').addEventListener('click',()=>{
  memberRecords=[];
  performanceData=null;
  performanceLoadedFor=null;
- if(id==='3')loadPerformance();else clearPerformance();
+ loadPerformance();
  loadMembers();
 });
 setInterval(()=>{if(!document.hidden&&$('memberDialog').open&&!memberController){loadMembers();updateTrackingStatus($('memberClanId').value.trim());}},5000);
-setInterval(()=>{if(!document.hidden&&$('memberDialog').open&&$('memberClanId').value.trim()==='3')loadPerformance();},30000);
+setInterval(()=>{if(!document.hidden&&$('memberDialog').open)loadPerformance();},30000);
 
 
 function drawMemberRows(){
- const hasMetrics=$('memberClanId').value.trim()==='3';
+ const hasMetrics=true;
  const mapped=new Map((hasMetrics?performanceData?.members||[]:[]).map(m=>[m.name,m]));
  $('memberRows').innerHTML=memberRecords.map((m,index)=>{
   const p=mapped.get(m.name);
@@ -228,23 +232,23 @@ function drawMemberRows(){
 }
 function clearPerformance(){
  $('historyPlayer').innerHTML='<option value="">All members</option>';
- $('historyPlot').textContent='Historical performance is currently tracked for CHAOS only.';
+ $('historyPlot').textContent='Waiting for scheduled snapshots for this clan.';
  $('historyCoverage').textContent='History coverage: —';
  $('historyWindow').textContent='1h: — · 3h: — · 6h: — · 24h: —';
 }
 async function loadPerformance(){
- if(performanceBusy||!$('memberDialog').open||$('memberClanId').value.trim()!=='3')return;
+ if(performanceBusy||!$('memberDialog').open)return;
  performanceBusy=true;
  const requestedId=$('memberClanId').value.trim();
  try{
   const seasonArg=officialSeason.season?'&season='+officialSeason.season:'';
-  const response=await fetch('/api/performance?id=3'+seasonArg+'&t='+Date.now(),{cache:'no-store'});
+  const response=await fetch('/api/performance?id='+encodeURIComponent(requestedId)+seasonArg+'&t='+Date.now(),{cache:'no-store'});
   const data=await response.json();
   if(!response.ok)throw Error(data.detail||data.error||'Performance unavailable');
   if(!$('memberDialog').open||$('memberClanId').value.trim()!==requestedId)return;
   performanceData=data;
-  fdObservedRate=data.totalRatePerHour;
-  performanceLoadedFor='3';
+  if(requestedId==='3')fdObservedRate=data.totalRatePerHour;
+  performanceLoadedFor=requestedId;
   const selected=$('historyPlayer').value;
   $('historyPlayer').innerHTML='<option value="">All members</option>'+data.members.map(m=>'<option value="'+escapeHtml(m.name)+'">'+escapeHtml(m.name)+'</option>').join('');
   if([...$('historyPlayer').options].some(o=>o.value===selected))$('historyPlayer').value=selected;
@@ -252,7 +256,7 @@ async function loadPerformance(){
   drawHistory();
   updateFdPanel();
  }catch(e){
-  if($('memberDialog').open&&$('memberClanId').value.trim()==='3')$('historyPlot').textContent='History unavailable: '+e.message;
+  if($('memberDialog').open&&$('memberClanId').value.trim()===requestedId)$('historyPlot').textContent='History unavailable: '+e.message;
  }finally{performanceBusy=false;}
 }
 function drawHistory(){
@@ -392,3 +396,22 @@ async function loadAlerts(){
 $('alertsRefresh').addEventListener('click',loadAlerts);
 loadAlerts();
 setInterval(loadAlerts,30000);
+
+
+let allCoverageBusy=false;
+async function refreshAllCoverage(){
+ if(document.hidden||allCoverageBusy)return;
+ allCoverageBusy=true;
+ try{
+  const response=await fetch('/api/all-clan-status',{cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||data.error||'Coverage unavailable');
+  const otherCount=clans.filter(c=>c.id&&String(c.id)!=='3').length;
+  const total=data.trackedToday||0;
+  const suffix=data.lastBatch?.attempted?' · latest batch '+sgtTime(data.lastBatch.attempted)+' · '+(data.lastBatch.success||0)+'/'+(data.lastBatch.requested||0)+' sampled':' · waiting for first scheduled batch';
+  $('allClanCoverage').textContent='Background coverage: '+total+'/'+(otherCount||'—')+' other ranked clans sampled today · 8 per 5-minute batch · ~'+(data.lastBatch?.cycleMinutes||55)+' min full rotation'+suffix;
+ }catch(e){$('allClanCoverage').textContent='Rotating clan coverage temporarily unavailable';}
+ finally{allCoverageBusy=false;}
+}
+refreshAllCoverage();
+setInterval(refreshAllCoverage,30000);
