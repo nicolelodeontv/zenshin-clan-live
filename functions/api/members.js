@@ -43,9 +43,14 @@ export async function membersResponse(request,env){
   }
   let baselineEstablished=false;
   if(!baseline||typeof baseline.values!=='object'||!baseline.values){
-   baseline={capturedAt:new Date().toISOString(),values:current};
-   baselineEstablished=true;
-   if(env.GAINS){try{await env.GAINS.put(key,JSON.stringify(baseline),{expirationTtl:172800});}catch(e){console.error('KV write failure',e);}}
+   if(id==='3'){
+    baseline={capturedAt:new Date().toISOString(),values:current};
+    baselineEstablished=true;
+    if(env.GAINS){try{await env.GAINS.put(key,JSON.stringify(baseline),{expirationTtl:172800});}catch(e){console.error('KV write failure',e);}}
+   }else{
+    // Wait for first scheduled sample rather than writing a per-visitor baseline for every clan.
+    baseline={capturedAt:null,values:{}};
+   }
   }
   const enriched=members.map(m=>{const initial=baseline.values[m.name];return {...m,gain:initial===undefined?null:Math.max(0,m.rep-Number(initial)),tracked:initial!==undefined};}).sort((a,b)=>(b.gain??-1)-(a.gain??-1)||b.rep-a.rep);
   return Response.json({clanId:id,season,clanName:body.name||null,clanReputation:body.reputation??null,date:day,baselineAt:baseline.capturedAt,baselineEstablished,backgroundSampleAt,backgroundCycleMinutes,members:enriched,updatedAt:new Date().toISOString(),note:'Daily gain begins at the earliest stored baseline for this SGT day, not necessarily midnight. Other-clan background samples are less frequent than CHAOS.'},{headers:{'Cache-Control':'public,max-age=0,s-maxage=5,stale-while-revalidate=2'}});
