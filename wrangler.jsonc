@@ -14,5 +14,10 @@
       "binding": "GAINS",
       "id": "cd3e22e2360440779a490bfea85d724e"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  }
 }
