@@ -1,12 +1,35 @@
+import {parse as parseRankings} from './clans.js';
+import {storageKey,sgtDate,decideTransition,readSeasonState,archiveSeason,SEASON_STATE_KEY} from './season.js';
 // Scheduled member snapshots for CHAOS; no public endpoint can trigger a write.
 const CHAOS_ID='3';
-const SGT_DATE=(date=new Date())=>{const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Singapore',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));return parts.year+'-'+parts.month+'-'+parts.day;};
-const BASELINE_KEY=date=>'member-baseline:'+date+':'+CHAOS_ID;
-const HISTORY_KEY=date=>'member-history:'+date+':'+CHAOS_ID;
+const SGT_DATE=sgtDate;
+const BASELINE_KEY=(date,season)=>storageKey('member-baseline',date,CHAOS_ID,season);
+const HISTORY_KEY=(date,season)=>storageKey('member-history',date,CHAOS_ID,season);
 const TTL=604800;
 const HEALTH_KEY='tracking-health:3';
 export async function captureChaosSnapshot(env,now=new Date()){
  if(!env.GAINS)throw Error('GAINS KV binding missing');
+ // The game may say "season closed" without disclosing a number.
+ // Only numbered, confirmed changes can create a new season namespace.
+ const rankingResponse=await fetch('https://ninjazenshin.online/clan-ranking',{headers:{Accept:'text/html','User-Agent':'ClanLiveDashboard/1.3'},signal:AbortSignal.timeout(12000),cache:'no-store'});
+ if(!rankingResponse.ok)throw Error('Season check HTTP '+rankingResponse.status);
+ const official=parseRankings(await rankingResponse.text());
+ const state=await readSeasonState(env);
+ const decision=decideTransition(state,official.season);
+ const day=SGT_DATE(now),timestamp=now.toISOString();
+ if(decision.pending){
+  await env.GAINS.put(SEASON_STATE_KEY,JSON.stringify({...state,pendingSeason:decision.pendingSeason,pendingCount:1,lastSeasonCheck:timestamp}));
+  return {skipped:true,reason:'Verifying season '+decision.pendingSeason+' on next scheduled check',season:state?.season||null};
+ }
+ if(decision.changed){
+  if(state?.season){await archiveSeason(env,state,timestamp);}
+  else {
+   const old=await env.GAINS.get(HISTORY_KEY(day,null),'json')||await env.GAINS.get(HISTORY_KEY(SGT_DATE(new Date(now.getTime()-86400000)),null),'json');
+   const last=old?.snapshots?.at(-1);
+   if(last)await archiveSeason(env,{season:null,lastRecordedAt:last.at,lastMemberValues:last.values,lastClanRep:null,lastRank:null},timestamp);
+  }
+ }
+ const season=decision.season;
  const r=await fetch('https://ninjazenshin.online/clan-ranking/members/3',{
   headers:{Accept:'application/json','User-Agent':'ClanLiveDashboard/1.2'},
   signal:AbortSignal.timeout(12000),cache:'no-store'
@@ -17,13 +40,12 @@ export async function captureChaosSnapshot(env,now=new Date()){
  const members=body.members.map(m=>({name:String(m.name||'').trim(),level:Number(m.level)||0,rep:Number(m.rep)}))
    .filter(m=>m.name&&Number.isFinite(m.rep));
  if(!members.length)throw Error('No valid CHAOS members');
- const day=SGT_DATE(now),timestamp=now.toISOString();
  const values=Object.fromEntries(members.map(m=>[m.name,m.rep]));
- const baseline=await env.GAINS.get(BASELINE_KEY(day),'json');
+ const baseline=await env.GAINS.get(BASELINE_KEY(day,season),'json');
  if(!baseline?.values){
-  await env.GAINS.put(BASELINE_KEY(day),JSON.stringify({capturedAt:timestamp,values}),{expirationTtl:TTL});
+  await env.GAINS.put(BASELINE_KEY(day,season),JSON.stringify({capturedAt:timestamp,values}),{expirationTtl:TTL});
  }
- const stored=await env.GAINS.get(HISTORY_KEY(day),'json');
+ const stored=await env.GAINS.get(HISTORY_KEY(day,season),'json');
  const history=Array.isArray(stored?.snapshots)?stored.snapshots:[];
  // One record per scheduled interval. Replace retries in the same five-minute bucket.
  const bucket=Math.floor(now.getTime()/300000);
@@ -32,8 +54,13 @@ export async function captureChaosSnapshot(env,now=new Date()){
  if(index>=0)history[index]=snapshot;else history.push(snapshot);
  history.sort((a,b)=>a.bucket-b.bucket);
  if(history.length>300)history.splice(0,history.length-300);
- await env.GAINS.put(HISTORY_KEY(day),JSON.stringify({clanId:CHAOS_ID,clanName:body.name||'Chaos',date:day,snapshots:history}),{expirationTtl:TTL});
- return {clanId:CHAOS_ID,date:day,memberCount:members.length,lastSnapshot:timestamp,snapshotsToday:history.length};
+ await env.GAINS.put(HISTORY_KEY(day,season),JSON.stringify({clanId:CHAOS_ID,clanName:body.name||'Chaos',date:day,season,snapshots:history}),{expirationTtl:TTL});
+ const chaos=official.clans.find(c=>String(c.id)==='3'||c.name.toLowerCase()==='chaos');
+ const updatedState={season,pendingSeason:null,pendingCount:0,lastSeasonCheck:timestamp,lastRecordedAt:timestamp,lastMemberValues:values,lastClanRep:chaos?.reputation??null,lastRank:chaos?.rank??null,lastSeasonStatus:official.seasonStatus};
+ const age=Date.parse(state?.lastRecordedAt||'');
+ const shouldWrite=decision.changed||state?.pendingSeason||!Number.isFinite(age)||now.getTime()-age>=15*60*1000;
+ if(shouldWrite)await env.GAINS.put(SEASON_STATE_KEY,JSON.stringify(updatedState));
+ return {clanId:CHAOS_ID,date:day,season,seasonChanged:decision.changed,memberCount:members.length,lastSnapshot:timestamp,snapshotsToday:history.length};
 }
 // Keep a durable result for every cron attempt, including failures.
 export async function scheduledCapture(env,now=new Date()){
@@ -41,7 +68,8 @@ export async function scheduledCapture(env,now=new Date()){
  const previous=await env.GAINS.get(HEALTH_KEY,'json').catch(()=>null);
  try{
   const result=await captureChaosSnapshot(env,now);
-  await env.GAINS.put(HEALTH_KEY,JSON.stringify({lastAttempt:attemptedAt,lastSuccess:new Date().toISOString(),lastError:null,memberCount:result.memberCount,snapshotsToday:result.snapshotsToday}),{expirationTtl:TTL});
+  if(result.skipped){await env.GAINS.put(HEALTH_KEY,JSON.stringify({...previous,lastAttempt:attemptedAt,lastWarning:result.reason,lastError:null}),{expirationTtl:TTL});return result;}
+  await env.GAINS.put(HEALTH_KEY,JSON.stringify({lastAttempt:attemptedAt,lastSuccess:new Date().toISOString(),lastError:null,lastWarning:null,season:result.season,memberCount:result.memberCount,snapshotsToday:result.snapshotsToday}),{expirationTtl:TTL});
   console.log('Scheduled CHAOS snapshot saved',JSON.stringify(result));
   return result;
  }catch(error){
@@ -57,11 +85,12 @@ export async function scheduledCapture(env,now=new Date()){
 export async function trackingStatus(env){
  if(!env.GAINS)return Response.json({error:'Storage not configured'},{status:503});
  const now=new Date(),today=SGT_DATE(now),yesterday=SGT_DATE(new Date(now.getTime()-86400000));
- const latest=await env.GAINS.get(HISTORY_KEY(today),'json');
- const previous=latest?.snapshots?.length?null:await env.GAINS.get(HISTORY_KEY(yesterday),'json');
+ const state=await readSeasonState(env);const season=state?.season||null;
+ const latest=await env.GAINS.get(HISTORY_KEY(today,season),'json');
+ const previous=latest?.snapshots?.length?null:await env.GAINS.get(HISTORY_KEY(yesterday,season),'json');
  const result=latest?.snapshots?.length?latest:previous;
  const last=result?.snapshots?.at(-1);
  const health=await env.GAINS.get(HEALTH_KEY,'json').catch(()=>null);
  const lastScheduled=health?.lastSuccess||null;
- return Response.json({clanId:CHAOS_ID,clanName:'Chaos',schedule:'*/5 * * * *',intervalMinutes:5,lastSnapshot:last?.at||null,snapshotsToday:latest?.snapshots?.length||0,latestDate:result?.date||null,memberCount:last?Object.keys(last.values).length:0,lastAttempt:health?.lastAttempt||null,lastScheduledSuccess:lastScheduled,lastError:health?.lastError||null,active:Boolean(lastScheduled&&now.getTime()-Date.parse(lastScheduled)<900000)}, {headers:{'Cache-Control':'no-store'}});
+ return Response.json({clanId:CHAOS_ID,clanName:'Chaos',season,pendingSeason:state?.pendingSeason||null,lastSeasonCheck:state?.lastSeasonCheck||null,lastWarning:health?.lastWarning||null,schedule:'*/5 * * * *',intervalMinutes:5,lastSnapshot:last?.at||null,snapshotsToday:latest?.snapshots?.length||0,latestDate:result?.date||null,memberCount:last?Object.keys(last.values).length:0,lastAttempt:health?.lastAttempt||null,lastScheduledSuccess:lastScheduled,lastError:health?.lastError||null,active:Boolean(lastScheduled&&now.getTime()-Date.parse(lastScheduled)<900000)}, {headers:{'Cache-Control':'no-store'}});
 }
