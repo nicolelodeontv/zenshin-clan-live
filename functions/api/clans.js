@@ -12,7 +12,7 @@ export function parse(html){
   const rank=Number(cells[0].replace(/[^\d]/g,'')),reputation=Number(cells[4].replace(/[^\d]/g,''));
   if(!rank||!cells[1]||!Number.isFinite(reputation))continue;
   const members=cells[3].match(/(\d+)\s*\/\s*(\d+)/);
-  const id=row[1].match(/\/clan-ranking\/members\/(\d+)/)?.[1]||null;
+  const id=row[1].match(/data-clan\s*=\s*["'](\d+)["']/i)?.[1]||row[1].match(/\/clan-ranking\/members\/(\d+)/)?.[1]||null;
   clans.push({id,rank,name:cells[1],master:cells[2],members:members?+members[1]:null,capacity:members?+members[2]:null,reputation});
  }
  if(clans.length<2)throw Error('Ranking data incomplete');
