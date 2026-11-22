@@ -2,7 +2,16 @@ const SOURCE='https://ninjazenshin.online/clan-ranking';
 const decode=s=>s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi,(full,item)=>{if(item[0]==='#'){let n=item[1]?.toLowerCase()==='x'?parseInt(item.slice(2),16):parseInt(item.slice(1),10);return n>0&&n<=0x10ffff?String.fromCodePoint(n):full;}return {amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '}[item.toLowerCase()]??full;});
 const plain=s=>decode(s.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim());
 export function parse(html){
- const season=+(html.match(/Season\s*(\d+)/i)?.[1]||0)||null;
+ const season=+(html.match(/(?:Current\\s+)?Season\\s*(\\d+)/i)?.[1]||0)||null;
+ const closed=/Season\\s+closed(?:\\s*[—–-]\\s*winners being calculated)?/i.test(html);
+ const countdown=html.match(/<[^>]*class=["'][^"']*\\bclr-cd\\b[^"']*["'][^>]*>/i)?.[0]||'';
+ const endText=countdown.match(/data-end=["']([^"']+)["']/i)?.[1]||null;
+ const endDate=endText&&Number.isFinite(Date.parse(endText))?new Date(endText).toISOString():null;
+ const seasonStatus=closed?'closed':endDate?'active':'unknown';
+ // A next-season date is only exposed if the official page explicitly publishes one.
+ const nextTag=html.match(/<[^>]*data-next-season-start=["'][^"']+["'][^>]*>/i)?.[0]||'';
+ const nextText=nextTag.match(/data-next-season-start=["']([^"']+)["']/i)?.[1]||null;
+ const nextStartAt=nextText&&Number.isFinite(Date.parse(nextText))?new Date(nextText).toISOString():null;
  const table=[...html.matchAll(/<table\b[^>]*>([\s\S]*?)<\/table>/gi)].find(m=>/Reputation/i.test(plain(m[1]))&&/Clan/i.test(plain(m[1])));
  if(!table)throw Error('Ranking table not found');
  const clans=[];
@@ -16,7 +25,7 @@ export function parse(html){
   clans.push({id,rank,name:cells[1],master:cells[2],members:members?+members[1]:null,capacity:members?+members[2]:null,reputation});
  }
  if(clans.length<2)throw Error('Ranking data incomplete');
- return {season,clans,updatedAt:new Date().toISOString(),source:SOURCE};
+ return {season,seasonStatus,seasonEndAt:endDate,nextSeasonStartAt:nextStartAt,clans,updatedAt:new Date().toISOString(),source:SOURCE};
 }
 export async function onRequestGet(){
  try{
