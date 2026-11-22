@@ -173,7 +173,7 @@ async function loadMembers(){
   memberRecords=body.members;
   drawMemberRows();
   if(performanceLoadedFor!==id)loadPerformance();
-  $('memberFoot').textContent='*Tracked since '+new Date(body.baselineAt).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT. New members show — until a baseline exists. Auto-updating while visible.';
+  $('memberFoot').textContent=body.baselineAt?'*Observed since '+sgtTime(body.baselineAt)+'. Gains before the first snapshot are not available. Auto-updating while visible.':'*Waiting for the first scheduled daily sample for this clan. REP gains are unavailable until then.';
  }catch(e){if(e.name!=='AbortError'&&!controller.signal.aborted)$('memberStatus').textContent='Member source error: '+e.message;}
  finally{if(memberController===controller)memberController=null;}
 }
