@@ -1,18 +1,31 @@
 # Ninja Zenshin Clan Live
 
-Unofficial real-time clan ranking dashboard for https://ninjazenshin.online/?panel=clan-ranking.
+Live clan leaderboard dashboard for Ninja Zenshin, refreshing every 30 seconds.
 
-## Deploy to Cloudflare Pages
+## Cloudflare Workers deployment
 
-1. In Cloudflare dashboard open Workers & Pages → Create → Pages → Connect to Git.
-2. Connect `nicolelodeontv/zenshin-clan-live`, branch `main`.
-3. Set framework **None**, build command **blank**, build output directory **public**.
-4. Save and Deploy. Cloudflare automatically deploys future commits.
+This repository is configured for **Cloudflare Workers with Static Assets**, not Cloudflare Pages Functions. The `workers.dev` domain serves the frontend from `public/` and handles the ranking API through `src/worker.js`.
 
-The `functions/api/clans.js` Pages Function retrieves the ranking server-side and the frontend polls `/api/clans` every 30 seconds. If the source layout or bot protection changes, the endpoint reports a 502 rather than providing fabricated results.
+Cloudflare → Workers & Pages → **zenshin-clan-live** → Settings → Builds (Git integration):
+- Repository: `nicolelodeontv/zenshin-clan-live`
+- Production branch: `main`
+- Root directory: repository root
+- Build command: leave blank (if required, `npm test`)
+- Deploy command: `npx wrangler deploy`
 
-## Run tests
+The deployment should use the checked-in `wrangler.jsonc` (Worker name, entrypoint, static assets and `/api/*` routing). For a build configured with `npm run deploy`, that script runs the same Wrangler command.
 
-`npm test`
+Check:
+- `https://zenshin-clan-live.njuandelacruz.workers.dev/` — frontend
+- `https://zenshin-clan-live.njuandelacruz.workers.dev/api/clans` — JSON API
 
-Cloudflare Pages free-tier usage limits apply. This is an unofficial fan project.
+A valid API response contains `clans` and `updatedAt`. A 502 means the upstream ranking page could not be retrieved or parsed. A 404 means the Workers deployment did not pick up the new Worker entrypoint and routing configuration.
+
+## Local checks
+
+```sh
+npm test
+npx wrangler dev
+```
+
+This is an unofficial, public-source polling tool, not a game-server streaming integration.
