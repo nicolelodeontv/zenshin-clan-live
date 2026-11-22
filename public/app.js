@@ -101,8 +101,8 @@ function selectClan(id,name){
  selectedClanName=name;
  $('membersTitle').textContent=name+' · Members';
  $('memberRows').innerHTML='<tr><td colspan="5">Loading '+escapeHtml(name)+' members…</td></tr>';
- loadMembers();
  if(!$('memberDialog').open)$('memberDialog').showModal();
+ loadMembers();
 }
 $('rows').addEventListener('click',event=>{
  const link=event.target.closest('.clan-member-link');
