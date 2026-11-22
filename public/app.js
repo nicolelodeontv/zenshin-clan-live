@@ -80,6 +80,7 @@ let memberRecords=[];
 let performanceData=null;
 let performanceLoadedFor=null;
 let performanceBusy=false;
+let fdObservedRate=null;
 let trackingStatusFetchedAt=0;
 async function updateTrackingStatus(id){
  const el=$('backgroundTracking');
@@ -190,6 +191,7 @@ async function loadPerformance(){
   if(!response.ok)throw Error(data.detail||data.error||'Performance unavailable');
   if(!$('memberDialog').open||$('memberClanId').value.trim()!==requestedId)return;
   performanceData=data;
+  fdObservedRate=data.totalRatePerHour;
   performanceLoadedFor='3';
   const selected=$('historyPlayer').value;
   $('historyPlayer').innerHTML='<option value="">All members</option>'+data.members.map(m=>'<option value="'+escapeHtml(m.name)+'">'+escapeHtml(m.name)+'</option>').join('');
@@ -232,7 +234,7 @@ function updateFdPanel(){
  if(!chaos)return;
  $('fdAbove').textContent=chaos.rank===1?'Rank #1':fmt(chaos.gapToAbove||0)+' REP';
  $('fdLeader').textContent=chaos.rank===1?'Leading':fmt(chaos.gapToLeader||0)+' REP';
- const rate=performanceData?.totalRatePerHour;
+ const rate=fdObservedRate;
  $('fdPace').textContent=Number.isFinite(rate)?fmt(Math.round(rate))+' REP/hr':'Not enough history';
  const hours=Number($('fdHours').value);
  const gap=chaos.rank===1?0:chaos.gapToAbove;
@@ -246,3 +248,19 @@ function updateFdPanel(){
 $('fdHours').addEventListener('input',updateFdPanel);
 $('historyPlayer').addEventListener('change',drawHistory);
 $('historyRange').addEventListener('change',drawHistory);
+
+let fdPaceBusy=false;
+async function refreshFdPace(){
+ if(document.hidden||fdPaceBusy)return;
+ fdPaceBusy=true;
+ try{
+  const response=await fetch('/api/performance?id=3',{cache:'no-store'});
+  if(!response.ok)return;
+  const data=await response.json();
+  fdObservedRate=data.totalRatePerHour;
+  updateFdPanel();
+ }catch(error){console.warn('Final Day pace refresh failed',error);}
+ finally{fdPaceBusy=false;}
+}
+refreshFdPace();
+setInterval(refreshFdPace,30000);
