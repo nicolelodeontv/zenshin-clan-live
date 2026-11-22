@@ -1,6 +1,6 @@
 import {onRequestGet} from '../functions/api/clans.js';
 import {membersResponse} from '../functions/api/members.js';
-import {captureChaosSnapshot,trackingStatus} from '../functions/api/snapshots.js';
+import {scheduledCapture,trackingStatus} from '../functions/api/snapshots.js';
 export default {
  async fetch(request, env) {
   const url = new URL(request.url);
@@ -14,6 +14,6 @@ export default {
   return env.ASSETS.fetch(request);
  },
  async scheduled(controller,env,ctx){
-  ctx.waitUntil(captureChaosSnapshot(env,new Date(controller.scheduledTime)));
+  ctx.waitUntil(scheduledCapture(env,new Date(controller.scheduledTime)));
  }
 };
