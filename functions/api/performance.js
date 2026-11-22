@@ -1,4 +1,5 @@
 import {storageKey,sgtDate,readSeasonState} from './season.js';
+import {readAllClanDay} from './all-clans.js';
 // Read-only analysis of recorded CHAOS snapshots. Missing coverage is not guessed.
 const HOURS=[1,3,6,24];
 const MIN_RATE_MS=5*60*1000;
@@ -50,16 +51,31 @@ export async function performanceResponse(request,env){
  const params=new URL(request.url).searchParams;
  const id=params.get('id')||'3';
  const expected=params.get('season');
- if(id!=='3')return Response.json({error:'Scheduled history is currently available for CHAOS (ID 3) only.'},{status:400,headers:{'Cache-Control':'no-store'}});
+ if(!/^[0-9]{1,7}$/.test(id))return Response.json({error:'Invalid clan ID'},{status:400,headers:{'Cache-Control':'no-store'}});
  if(!env.GAINS)return Response.json({error:'Tracking storage not configured'},{status:503});
  try{
   const state=await readSeasonState(env);const season=state?.season||null;
   if(expected&&/^[0-9]+$/.test(expected)&&Number(expected)!==season)return Response.json({error:'Season transition pending verification',expectedSeason:Number(expected),trackedSeason:season},{status:409,headers:{'Cache-Control':'no-store'}});
   const now=new Date(),today=sgtDate(now),yesterday=sgtDate(new Date(now.getTime()-DAY_MS));
-  const keys=[storageKey('member-history',yesterday,'3',season),storageKey('member-history',today,'3',season),storageKey('member-baseline',today,'3',season)];
-  const [prior,current,baseline]=await Promise.all(keys.map(key=>env.GAINS.get(key,'json')));
-  const combined=[...(prior?.snapshots||[]),...(current?.snapshots||[])].filter(p=>Date.parse(p.at)>=now.getTime()-DAY_MS-1800000);
+  let prior,current,baseline,combined,coverageMode,cycleMinutes=null;
+  if(id==='3'){
+   const keys=[storageKey('member-history',yesterday,id,season),storageKey('member-history',today,id,season),storageKey('member-baseline',today,id,season)];
+   [prior,current,baseline]=await Promise.all(keys.map(key=>env.GAINS.get(key,'json')));
+   combined=[...(prior?.snapshots||[]),...(current?.snapshots||[])];
+   coverageMode='5-minute CHAOS snapshots';
+   cycleMinutes=5;
+  }else{
+   [prior,current,baseline]=await Promise.all([readAllClanDay(env,yesterday,season),readAllClanDay(env,today,season),env.GAINS.get(storageKey('member-baseline',today,id,season),'json')]);
+   const previousSamples=prior?.clans?.[id]?.samples||[];
+   const todaysSamples=current?.clans?.[id]?.samples||[];
+   combined=[...previousSamples,...todaysSamples];
+   const earliestToday=todaysSamples[0];
+   if(earliestToday?.values&&(!baseline?.values||Date.parse(earliestToday.at)<Date.parse(baseline.capturedAt||'')))baseline={capturedAt:earliestToday.at,values:earliestToday.values};
+   coverageMode='rotating ranked clan snapshots';
+   cycleMinutes=current?.lastBatch?.cycleMinutes??prior?.lastBatch?.cycleMinutes??null;
+  }
+  combined=combined.filter(p=>Number.isFinite(Date.parse(p.at))&&Date.parse(p.at)>=now.getTime()-DAY_MS-1800000);
   const analysis=analyzeSnapshots(combined,baseline||{},now);
-  return Response.json({clanId:'3',season,date:today,baselineAt:baseline?.capturedAt||null,updatedAt:now.toISOString(),...analysis,disclaimer:'REP gains are observed from stored snapshots only. No samples, exact inactivity time, or competitor rates are inferred.',target:10000},{headers:{'Cache-Control':'no-store'}});
+  return Response.json({clanId:id,season,date:today,baselineAt:baseline?.capturedAt||null,updatedAt:now.toISOString(),coverageMode,cycleMinutes,...analysis,disclaimer:'Rates and gains come from stored samples only. Other clans are sampled on a rotating schedule; missing history is never estimated.',target:10000},{headers:{'Cache-Control':'no-store'}});
  }catch(e){return Response.json({error:'History unavailable',detail:String(e.message||e)},{status:502,headers:{'Cache-Control':'no-store'}});}
 }
