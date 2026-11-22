@@ -365,3 +365,30 @@ async function loadSeasonArchives(){
 }
 loadSeasonArchives();
 setInterval(loadSeasonArchives,60000);
+
+
+let alertsBusy=false;
+async function loadAlerts(){
+ if(document.hidden||alertsBusy)return;
+ alertsBusy=true;
+ try{
+  const response=await fetch('/api/alerts',{cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok||!Array.isArray(data.events))throw Error(data.detail||data.error||'Notifications unavailable');
+  $('alertsHealth').textContent=data.trackingHealthy?'● CHAOS background tracking healthy':'● CHAOS snapshots delayed — check tracking status';
+  $('alertsHealth').className='status '+(data.trackingHealthy?'positive':'negative');
+  $('alertCount').textContent=data.events.length?'('+data.events.length+')':'';
+  const list=data.events.slice(0,12);
+  $('alertsList').innerHTML=list.map(entry=>{
+   const severity=entry.severity==='warning'?'warning':'info';
+   const date=Number.isFinite(Date.parse(entry.at))?sgtTime(entry.at):'Time unknown';
+   return '<article class="alert-entry '+severity+'"><strong>'+escapeHtml(entry.title||'Tracking notice')+'</strong><p>'+escapeHtml(entry.detail||'')+'</p><time>'+escapeHtml(date)+'</time></article>';
+  }).join('')||'<p class="alert-empty">No new season or tracking events. Notifications will appear here when a change is detected.</p>';
+ }catch(e){
+  $('alertsHealth').textContent='Alert service unavailable: '+e.message;
+  $('alertsHealth').className='status negative';
+ }finally{alertsBusy=false;}
+}
+$('alertsRefresh').addEventListener('click',loadAlerts);
+loadAlerts();
+setInterval(loadAlerts,30000);
