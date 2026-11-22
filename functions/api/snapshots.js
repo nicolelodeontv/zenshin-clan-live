@@ -1,4 +1,5 @@
 import {parse as parseRankings} from './clans.js';
+import {recordTrackingAlerts} from './alerts.js';
 import {storageKey,sgtDate,decideTransition,readSeasonState,archiveSeason,detectMassRepReset,SEASON_STATE_KEY} from './season.js';
 // Scheduled member snapshots for CHAOS; no public endpoint can trigger a write.
 const CHAOS_ID='3';
@@ -19,7 +20,7 @@ export async function captureChaosSnapshot(env,now=new Date()){
  const day=SGT_DATE(now),timestamp=now.toISOString();
  if(decision.pending){
   await env.GAINS.put(SEASON_STATE_KEY,JSON.stringify({...state,pendingSeason:decision.pendingSeason,pendingCount:1,lastSeasonCheck:timestamp}));
-  return {skipped:true,reason:'Verifying season '+decision.pendingSeason+' on next scheduled check',season:state?.season||null};
+  return {skipped:true,reason:'Verifying season '+decision.pendingSeason+' on next scheduled check',season:state?.season||null,official};
  }
  if(decision.changed){
   if(state?.season){await archiveSeason(env,state,timestamp);}
@@ -44,7 +45,7 @@ export async function captureChaosSnapshot(env,now=new Date()){
  if(!decision.changed&&detectMassRepReset(state?.lastMemberValues||{},values)){
   const reason='Potential season reset detected from widespread REP decreases; waiting for confirmed numbered season';
   console.warn(reason);
-  return {skipped:true,reason,season};
+  return {skipped:true,reason,season,official};
  }
 
  const baseline=await env.GAINS.get(BASELINE_KEY(day,season),'json');
@@ -66,7 +67,7 @@ export async function captureChaosSnapshot(env,now=new Date()){
  const age=Date.parse(state?.lastRecordedAt||'');
  const shouldWrite=decision.changed||state?.pendingSeason||!Number.isFinite(age)||now.getTime()-age>=15*60*1000;
  if(shouldWrite)await env.GAINS.put(SEASON_STATE_KEY,JSON.stringify(updatedState));
- return {clanId:CHAOS_ID,date:day,season,seasonChanged:decision.changed,memberCount:members.length,lastSnapshot:timestamp,snapshotsToday:history.length};
+ return {clanId:CHAOS_ID,date:day,season,seasonChanged:decision.changed,memberCount:members.length,lastSnapshot:timestamp,snapshotsToday:history.length,official};
 }
 // Keep a durable result for every cron attempt, including failures.
 export async function scheduledCapture(env,now=new Date()){
@@ -74,9 +75,10 @@ export async function scheduledCapture(env,now=new Date()){
  const previous=await env.GAINS.get(HEALTH_KEY,'json').catch(()=>null);
  try{
   const result=await captureChaosSnapshot(env,now);
-  if(result.skipped){await env.GAINS.put(HEALTH_KEY,JSON.stringify({...previous,lastAttempt:attemptedAt,lastWarning:result.reason,lastError:null}),{expirationTtl:TTL});return result;}
+  if(result.skipped){await env.GAINS.put(HEALTH_KEY,JSON.stringify({...previous,lastAttempt:attemptedAt,lastWarning:result.reason,lastError:null}),{expirationTtl:TTL});await recordTrackingAlerts(env,{now:attemptedAt,official:result.official,skipped:true,warning:result.reason});return result;}
   await env.GAINS.put(HEALTH_KEY,JSON.stringify({lastAttempt:attemptedAt,lastSuccess:new Date().toISOString(),lastError:null,lastWarning:null,season:result.season,memberCount:result.memberCount,snapshotsToday:result.snapshotsToday}),{expirationTtl:TTL});
-  console.log('Scheduled CHAOS snapshot saved',JSON.stringify(result));
+  await recordTrackingAlerts(env,{now:attemptedAt,official:result.official});
+  console.log('Scheduled CHAOS snapshot saved',JSON.stringify({...result,official:undefined}));
   return result;
  }catch(error){
   const message=String(error?.message||error).slice(0,350);
@@ -85,6 +87,7 @@ export async function scheduledCapture(env,now=new Date()){
    try{await env.GAINS.put(HEALTH_KEY,JSON.stringify({lastAttempt:attemptedAt,lastSuccess:previous?.lastSuccess||null,lastError:message,memberCount:previous?.memberCount||0}),{expirationTtl:TTL});}
    catch(writeError){console.error('Tracking health persistence failed',writeError);}
   }
+  try{await recordTrackingAlerts(env,{now:attemptedAt,error:message});}catch(alertError){console.error('Alert state update failed',alertError);}
   throw error;
  }
 }
