@@ -1,4 +1,5 @@
 import {storageKey,sgtDate,readSeasonState} from './season.js';
+import {readAllClanDay} from './all-clans.js';
 const memberUrl = id => 'https://ninjazenshin.online/clan-ranking/members/'+id;
 export async function membersResponse(request,env){
  const params=new URL(request.url).searchParams;
@@ -23,6 +24,23 @@ export async function membersResponse(request,env){
    try{baseline=await env.GAINS.get(key,'json');}catch(e){console.error('KV read failure',e);}
   }
   const current=Object.fromEntries(members.map(m=>[m.name,m.rep]));
+  // Use the earliest scheduled observation of this clan as the daily baseline.
+  // Preserve an earlier visitor baseline when one exists.
+  let backgroundSampleAt=null,backgroundCycleMinutes=null;
+  if(id!=='3'&&env.GAINS){
+   try{
+    const allClans=await readAllClanDay(env,day,season);
+    const clan=allClans?.clans?.[id];
+    const first=clan?.samples?.[0];
+    if(first?.values&&Number.isFinite(Date.parse(first.at))){
+     backgroundSampleAt=clan.lastSampleAt||first.at;
+     backgroundCycleMinutes=allClans?.lastBatch?.cycleMinutes||null;
+     if(!baseline?.values||Date.parse(first.at)<Date.parse(baseline.capturedAt||'')){
+      baseline={capturedAt:first.at,values:first.values,source:'scheduled'};
+     }
+    }
+   }catch(e){console.error('Read rotating clan history failed',e);}
+  }
   let baselineEstablished=false;
   if(!baseline||typeof baseline.values!=='object'||!baseline.values){
    baseline={capturedAt:new Date().toISOString(),values:current};
@@ -30,6 +48,6 @@ export async function membersResponse(request,env){
    if(env.GAINS){try{await env.GAINS.put(key,JSON.stringify(baseline),{expirationTtl:172800});}catch(e){console.error('KV write failure',e);}}
   }
   const enriched=members.map(m=>{const initial=baseline.values[m.name];return {...m,gain:initial===undefined?null:Math.max(0,m.rep-Number(initial)),tracked:initial!==undefined};}).sort((a,b)=>(b.gain??-1)-(a.gain??-1)||b.rep-a.rep);
-  return Response.json({clanId:id,season,clanName:body.name||null,clanReputation:body.reputation??null,date:day,baselineAt:baseline.capturedAt,baselineEstablished,members:enriched,updatedAt:new Date().toISOString(),note:'Gain since the first stored snapshot of this SGT day, not necessarily midnight. New members need a baseline before gains appear.'},{headers:{'Cache-Control':'public,max-age=0,s-maxage=5,stale-while-revalidate=2'}});
+  return Response.json({clanId:id,season,clanName:body.name||null,clanReputation:body.reputation??null,date:day,baselineAt:baseline.capturedAt,baselineEstablished,backgroundSampleAt,backgroundCycleMinutes,members:enriched,updatedAt:new Date().toISOString(),note:'Daily gain begins at the earliest stored baseline for this SGT day, not necessarily midnight. Other-clan background samples are less frequent than CHAOS.'},{headers:{'Cache-Control':'public,max-age=0,s-maxage=5,stale-while-revalidate=2'}});
  }catch(e){return Response.json({error:'Member data unavailable',detail:String(e.message||e)},{status:502,headers:{'Cache-Control':'no-store'}});}
 }
