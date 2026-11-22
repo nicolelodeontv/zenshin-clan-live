@@ -1,5 +1,5 @@
 import {parse as parseRankings} from './clans.js';
-import {storageKey,sgtDate,decideTransition,readSeasonState,archiveSeason,SEASON_STATE_KEY} from './season.js';
+import {storageKey,sgtDate,decideTransition,readSeasonState,archiveSeason,detectMassRepReset,SEASON_STATE_KEY} from './season.js';
 // Scheduled member snapshots for CHAOS; no public endpoint can trigger a write.
 const CHAOS_ID='3';
 const SGT_DATE=sgtDate;
@@ -15,7 +15,7 @@ export async function captureChaosSnapshot(env,now=new Date()){
  if(!rankingResponse.ok)throw Error('Season check HTTP '+rankingResponse.status);
  const official=parseRankings(await rankingResponse.text());
  const state=await readSeasonState(env);
- const decision=decideTransition(state,official.season);
+ const decision=decideTransition(state,official.seasonStatus==='closed'?null:official.season);
  const day=SGT_DATE(now),timestamp=now.toISOString();
  if(decision.pending){
   await env.GAINS.put(SEASON_STATE_KEY,JSON.stringify({...state,pendingSeason:decision.pendingSeason,pendingCount:1,lastSeasonCheck:timestamp}));
@@ -41,6 +41,12 @@ export async function captureChaosSnapshot(env,now=new Date()){
    .filter(m=>m.name&&Number.isFinite(m.rep));
  if(!members.length)throw Error('No valid CHAOS members');
  const values=Object.fromEntries(members.map(m=>[m.name,m.rep]));
+ if(!decision.changed&&detectMassRepReset(state?.lastMemberValues||{},values)){
+  const reason='Potential season reset detected from widespread REP decreases; waiting for confirmed numbered season';
+  console.warn(reason);
+  return {skipped:true,reason,season};
+ }
+
  const baseline=await env.GAINS.get(BASELINE_KEY(day,season),'json');
  if(!baseline?.values){
   await env.GAINS.put(BASELINE_KEY(day,season),JSON.stringify({capturedAt:timestamp,values}),{expirationTtl:TTL});
