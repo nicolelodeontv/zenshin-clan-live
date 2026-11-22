@@ -45,7 +45,9 @@ export async function recordTrackingAlerts(env,metadata={}){
   const events=[...next,...old].filter(e=>e&&Number.isFinite(Date.parse(e.at))&&Date.parse(e.at)>=cutoff).slice(0,LIMIT);
   await env.GAINS.put(EVENTS_KEY,JSON.stringify(events));
  }
- await env.GAINS.put(STATE_KEY,JSON.stringify(observed));
+ // No KV write when the observed state is unchanged; preserves free-tier write budget.
+ const relevant=state=>JSON.stringify([state?.season,state?.seasonStatus,state?.seasonEndAt,state?.nextSeasonStartAt,state?.trackingState,state?.error,state?.warning]);
+ if(relevant(previous)!==relevant(observed))await env.GAINS.put(STATE_KEY,JSON.stringify(observed));
  return {newEvents:next.length,trackingState:observed.trackingState};
 }
 export async function alertsResponse(env){
