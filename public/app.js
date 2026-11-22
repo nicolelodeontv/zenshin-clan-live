@@ -141,6 +141,8 @@ async function updateTrackingStatus(id){
   const data=await response.json();
   el.textContent=data.lastError
     ?'24/7 tracking error: '+data.lastError
+    :data.lastWarning
+      ?'Season protection: '+data.lastWarning
     :data.lastScheduledSuccess
       ?'24/7 CHAOS tracking: '+(data.active?'Active':'Last check aging')+' · last successful cron '+new Date(data.lastScheduledSuccess).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT · '+data.snapshotsToday+' snapshots today'
       :'24/7 CHAOS tracking configured · awaiting first verified scheduled execution';
@@ -353,7 +355,7 @@ async function loadSeasonArchives(){
   if(!response.ok)throw Error('Archive API unavailable');
   const data=await response.json();
   const archives=data.archives||[];
-  $('seasonArchiveStatus').textContent=archives.length+' preserved season summary'+(archives.length===1?'':'ies')+' · last-observed values, not official final results';
+  $('seasonArchiveStatus').textContent=archives.length+' preserved season '+(archives.length===1?'summary':'summaries')+' · last-observed values, not official final results';
   $('seasonArchives').innerHTML=archives.map(item=>{
    const rows=Object.entries(item.lastObservedMemberRep||{}).sort((a,b)=>b[1]-a[1]);
    const members=rows.map(([name,rep])=>'<div>'+escapeHtml(name)+' — '+fmt(rep)+' REP</div>').join('');
