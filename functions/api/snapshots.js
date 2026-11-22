@@ -1,5 +1,6 @@
 import {parse as parseRankings} from './clans.js';
 import {recordTrackingAlerts} from './alerts.js';
+import {captureRotatingClans} from './all-clans.js';
 import {storageKey,sgtDate,decideTransition,readSeasonState,archiveSeason,detectMassRepReset,SEASON_STATE_KEY} from './season.js';
 // Scheduled member snapshots for CHAOS; no public endpoint can trigger a write.
 const CHAOS_ID='3';
@@ -77,6 +78,11 @@ export async function scheduledCapture(env,now=new Date()){
   const result=await captureChaosSnapshot(env,now);
   if(result.skipped){await env.GAINS.put(HEALTH_KEY,JSON.stringify({...previous,lastAttempt:attemptedAt,lastWarning:result.reason,lastError:null}),{expirationTtl:TTL});await recordTrackingAlerts(env,{now:attemptedAt,official:result.official,skipped:true,warning:result.reason});return result;}
   await env.GAINS.put(HEALTH_KEY,JSON.stringify({lastAttempt:attemptedAt,lastSuccess:new Date().toISOString(),lastError:null,lastWarning:null,season:result.season,memberCount:result.memberCount,snapshotsToday:result.snapshotsToday}),{expirationTtl:TTL});
+  // Other ranked clans are best-effort: an unavailable clan must not mark CHAOS tracking failed.
+  try{
+   const rotated=await captureRotatingClans(env,now,result.official,result.season);
+   console.log('Ranked clan rotation',JSON.stringify(rotated));
+  }catch(rotationError){console.error('Ranked clan rotation failed',rotationError);}
   await recordTrackingAlerts(env,{now:attemptedAt,official:result.official});
   console.log('Scheduled CHAOS snapshot saved',JSON.stringify({...result,official:undefined}));
   return result;
