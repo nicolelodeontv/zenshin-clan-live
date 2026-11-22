@@ -66,7 +66,7 @@ export async function captureChaosSnapshot(env,now=new Date()){
  const chaos=official.clans.find(c=>String(c.id)==='3'||c.name.toLowerCase()==='chaos');
  const updatedState={season,pendingSeason:null,pendingCount:0,lastSeasonCheck:timestamp,lastRecordedAt:timestamp,lastMemberValues:values,lastClanRep:chaos?.reputation??null,lastRank:chaos?.rank??null,lastSeasonStatus:official.seasonStatus};
  const age=Date.parse(state?.lastRecordedAt||'');
- const shouldWrite=decision.changed||state?.pendingSeason||!Number.isFinite(age)||now.getTime()-age>=15*60*1000;
+ const shouldWrite=decision.changed||state?.pendingSeason||!Number.isFinite(age)||now.getTime()-age>=30*60*1000;
  if(shouldWrite)await env.GAINS.put(SEASON_STATE_KEY,JSON.stringify(updatedState));
  return {clanId:CHAOS_ID,date:day,season,seasonChanged:decision.changed,memberCount:members.length,lastSnapshot:timestamp,snapshotsToday:history.length,official};
 }
