@@ -22,6 +22,6 @@ export async function onRequestGet(){
  try{
   const r=await fetch(SOURCE,{headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; ClanLiveDashboard/1.0)'},signal:AbortSignal.timeout(12000),cache:'no-store'});
   if(!r.ok)throw Error('Source returned HTTP '+r.status);
-  return Response.json(parse(await r.text()),{headers:{'Cache-Control':'public, max-age=0, s-maxage=20, stale-while-revalidate=10'}});
+  return Response.json(parse(await r.text()),{headers:{'Cache-Control':'public, max-age=0, s-maxage=5, stale-while-revalidate=2'}});
  }catch(e){return Response.json({error:'Ranking source unavailable',detail:String(e.message||e)},{status:502,headers:{'Cache-Control':'no-store'}});}
 }
