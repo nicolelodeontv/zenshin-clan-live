@@ -8,5 +8,11 @@
     "run_worker_first": [
       "/api/*"
     ]
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "GAINS",
+      "id": "cd3e22e2360440779a490bfea85d724e"
+    }
+  ]
 }
