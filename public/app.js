@@ -7,7 +7,9 @@ let clans=[], previous=new Map(), busy=false, lastSuccess=0, refreshTimer=null;
 let failures=0;
 const status=$('status'), error=$('error'), updated=$('updated');
 
-let officialSeason={seasonStatus:'unknown',seasonEndAt:null,nextSeasonStartAt:null};
+let officialSeason={season:null,seasonStatus:'unknown',seasonEndAt:null,nextSeasonStartAt:null};
+let lastRankingSeason=null;
+let trackedSeason=null;
 const sgtTime=iso=>new Date(iso).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT';
 const timeLeft=iso=>{
  const remaining=Date.parse(iso)-Date.now();
@@ -75,10 +77,13 @@ async function sync(){
   const body=await response.json();
   if(!response.ok||!Array.isArray(body.clans))throw Error(body.detail||body.error||'Invalid ranking data');
   if(!body.clans.length)throw Error('Ranking list is empty');
-  previous=new Map(clans.map(c=>[c.id||c.name,c]));
+  const seasonChanged=Number.isInteger(body.season)&&lastRankingSeason!==null&&body.season!==lastRankingSeason;
+  previous=seasonChanged?new Map():new Map(clans.map(c=>[c.id||c.name,c]));
+  if(seasonChanged){fdObservedRate=null;performanceData=null;performanceLoadedFor=null;}
+  if(Number.isInteger(body.season))lastRankingSeason=body.season;
   clans=enrichRankings(body.clans);
   const leader=clans[0],chaos=clans.find(c=>c.name.toLowerCase()==='chaos');
-  officialSeason={seasonStatus:body.seasonStatus||'unknown',seasonEndAt:body.seasonEndAt||null,nextSeasonStartAt:body.nextSeasonStartAt||null};
+  officialSeason={season:body.season||null,seasonStatus:body.seasonStatus||'unknown',seasonEndAt:body.seasonEndAt||null,nextSeasonStartAt:body.nextSeasonStartAt||null};
   updateSeasonCountdowns();
   $('season').textContent=body.season?'Season '+body.season:body.seasonStatus==='closed'?'Closed':'Not published';
   $('count').textContent=clans.length;
@@ -95,6 +100,7 @@ async function sync(){
   failures=0;
   render();
   updateFdPanel();
+  updateSeasonTransition();
  }catch(e){
   failures++;
   status.textContent='● Connection error';
@@ -150,7 +156,8 @@ async function loadMembers(){
  memberController=controller;
  $('memberStatus').textContent='Loading '+selectedClanName+' members…';
  try{
-  const response=await fetch('/api/members?id='+encodeURIComponent(id)+'&t='+Date.now(),{cache:'no-store',signal:controller.signal});
+  const seasonArg=officialSeason.season?'&season='+officialSeason.season:'';
+  const response=await fetch('/api/members?id='+encodeURIComponent(id)+seasonArg+'&t='+Date.now(),{cache:'no-store',signal:controller.signal});
   const body=await response.json();
   if(controller.signal.aborted)return;
   if(!response.ok||!Array.isArray(body.members))throw Error(body.detail||body.error||'Member data unavailable');
@@ -228,7 +235,8 @@ async function loadPerformance(){
  performanceBusy=true;
  const requestedId=$('memberClanId').value.trim();
  try{
-  const response=await fetch('/api/performance?id=3&t='+Date.now(),{cache:'no-store'});
+  const seasonArg=officialSeason.season?'&season='+officialSeason.season:'';
+  const response=await fetch('/api/performance?id=3'+seasonArg+'&t='+Date.now(),{cache:'no-store'});
   const data=await response.json();
   if(!response.ok)throw Error(data.detail||data.error||'Performance unavailable');
   if(!$('memberDialog').open||$('memberClanId').value.trim()!==requestedId)return;
@@ -296,7 +304,8 @@ async function refreshFdPace(){
  if(document.hidden||fdPaceBusy)return;
  fdPaceBusy=true;
  try{
-  const response=await fetch('/api/performance?id=3',{cache:'no-store'});
+  const seasonArg=officialSeason.season?'&season='+officialSeason.season:'';
+  const response=await fetch('/api/performance?id=3'+seasonArg,{cache:'no-store'});
   if(!response.ok)return;
   const data=await response.json();
   fdObservedRate=data.totalRatePerHour;
@@ -306,3 +315,51 @@ async function refreshFdPace(){
 }
 refreshFdPace();
 setInterval(refreshFdPace,30000);
+
+
+let lastTransitionCheck=0;
+async function updateSeasonTransition(){
+ const box=$('seasonTransition');
+ if(!officialSeason.season){box.hidden=true;return;}
+ if(Date.now()-lastTransitionCheck<20000){
+  box.hidden=trackedSeason===officialSeason.season;
+  return;
+ }
+ lastTransitionCheck=Date.now();
+ try{
+  const response=await fetch('/api/tracking-status',{cache:'no-store'});
+  if(!response.ok)return;
+  const data=await response.json();
+  const before=trackedSeason;
+  trackedSeason=data.season||null;
+  box.hidden=trackedSeason===officialSeason.season;
+  box.textContent=data.pendingSeason===officialSeason.season
+   ?'New season '+officialSeason.season+' detected. Verifying a second scheduled observation before resetting member REP tracking.'
+   :'Official Season '+officialSeason.season+' detected. Scheduled tracking is verifying the season boundary; previous REP data remains protected.';
+  if(before!==trackedSeason&&trackedSeason===officialSeason.season){
+   fdObservedRate=null;performanceData=null;performanceLoadedFor=null;
+   refreshFdPace();
+   if($('memberDialog').open&&$('memberClanId').value.trim()==='3'){loadMembers();loadPerformance();}
+   loadSeasonArchives();
+  }
+ }catch(e){box.hidden=false;box.textContent='Checking new season tracking state…';}
+}
+let lastArchiveRefresh=0;
+async function loadSeasonArchives(){
+ if(Date.now()-lastArchiveRefresh<20000)return;
+ lastArchiveRefresh=Date.now();
+ try{
+  const response=await fetch('/api/season-archive',{cache:'no-store'});
+  if(!response.ok)throw Error('Archive API unavailable');
+  const data=await response.json();
+  const archives=data.archives||[];
+  $('seasonArchiveStatus').textContent=archives.length+' preserved season summary'+(archives.length===1?'':'ies')+' · last-observed values, not official final results';
+  $('seasonArchives').innerHTML=archives.map(item=>{
+   const rows=Object.entries(item.lastObservedMemberRep||{}).sort((a,b)=>b[1]-a[1]);
+   const members=rows.map(([name,rep])=>'<div>'+escapeHtml(name)+' — '+fmt(rep)+' REP</div>').join('');
+   return '<details class="archive-item"><summary>'+escapeHtml(item.seasonLabel)+' · '+(item.recordedAt?sgtTime(item.recordedAt):'Last recorded time unknown')+'</summary><p>Last observed rank: '+(item.lastObservedRank?'#'+item.lastObservedRank:'Not available')+' · Clan REP: '+(Number.isFinite(item.lastObservedClanRep)?fmt(item.lastObservedClanRep):'Not available')+'</p><p>'+escapeHtml(item.scope||'Last observed values only')+'</p><div class="archive-data">'+members+'</div></details>';
+  }).join('')||'<p>No previous season has been archived yet. Archives are created when an official numbered season change is confirmed.</p>';
+ }catch(e){$('seasonArchiveStatus').textContent='Archive status unavailable: '+e.message;}
+}
+loadSeasonArchives();
+setInterval(loadSeasonArchives,60000);
