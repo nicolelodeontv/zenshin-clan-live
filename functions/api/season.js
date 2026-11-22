@@ -21,6 +21,12 @@ export function decideTransition(state,officialSeason){
  if(state?.pendingSeason===observed&&state?.pendingCount>=1)return {season:observed,pending:false,changed:true,confirmed:true};
  return {season:prior,pending:true,pendingSeason:observed,pendingCount:1,changed:false,confirmed:false};
 }
+export function detectMassRepReset(before={},after={}){
+ const overlapping=Object.keys(after).filter(name=>Number.isFinite(before[name])&&Number.isFinite(after[name]));
+ if(overlapping.length<10)return false;
+ const drops=overlapping.filter(name=>after[name]<before[name]).length;
+ return drops/overlapping.length>=0.6;
+}
 export async function readSeasonState(env){return await env.GAINS?.get(SEASON_STATE_KEY,'json')||null;}
 export async function archiveSeason(env,state,at){
  const ns=seasonNamespace(state?.season);
