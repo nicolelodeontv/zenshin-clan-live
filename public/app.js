@@ -19,7 +19,7 @@ function render(){
   const link=c.id?'<a href="#members" class="clan-member-link" data-clan-id="'+c.id+'" data-clan-name="'+escapeHtml(c.name)+'" aria-label="View '+escapeHtml(c.name)+' members">'+escapeHtml(c.name)+'</a>':'<span title="Clan ID unavailable">'+escapeHtml(c.name)+'</span>';
   const delta=gain===null?'':gain>0?'<small class="positive"> +'+fmt(gain)+'</small>':gain<0?'<small class="negative"> '+fmt(gain)+'</small>':'';
   const change=movement?'<small class="'+(movement>0?'positive':'negative')+'"> '+(movement>0?'▲':'▼')+Math.abs(movement)+'</small>':'';
-  return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td><a href="'+url+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(c.name)+'</a>'+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'</td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
+  return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td>'+link+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'</td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
  }).join('')||'<tr><td colspan="7">No matching clans</td></tr>';
 }
 function schedule(ms=POLL_MS){clearTimeout(refreshTimer);if(!document.hidden) refreshTimer=setTimeout(sync,ms);}
