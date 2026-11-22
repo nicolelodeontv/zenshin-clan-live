@@ -78,7 +78,7 @@ let selectedClanName='Chaos';
 async function loadMembers(){
  if(!$('memberDialog').open)return;
  const id=$('memberClanId').value.trim();
- if(!/^\\d{1,7}$/.test(id)){ $('memberStatus').textContent='Choose a clan from the leaderboard or enter a numeric clan ID'; return; }
+ if(!/^[0-9]{1,7}$/.test(id)){ $('memberStatus').textContent='Invalid clan ID: please use digits only'; $('memberRows').innerHTML='<tr><td colspan="5">Invalid clan ID</td></tr>'; return; }
  if(memberController)memberController.abort();
  const controller=new AbortController();
  memberController=controller;
