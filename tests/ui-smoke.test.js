@@ -33,3 +33,24 @@ test('navigation does not replace any data retrieval or background trackers',()=
  assert.match(js,/loadMonitoringHealth\(\)/);
  assert.match(js,/loadSeasonArchives\(\)/);
 });
+
+test('search has an accessible empty state and keyboard shortcut',()=>{
+ assert.match(html,/id="resultsSummary" role="status"/);
+ assert.match(html,/aria-controls="rows"/);
+ assert.match(js,/id="clearClanSearch"/);
+ assert.match(js,/event\.key!=='\/'/);
+ assert.match(js,/applyDashboardView\('rankings',true\)/);
+});
+test('clan history requests are abortable and dialog restores focus',()=>{
+ assert.match(js,/let performanceAbort=null/);
+ assert.match(js,/performanceAbort\.abort\(\)/);
+ assert.match(js,/requestId!==performanceRequestId/);
+ assert.match(js,/if\(target\?\.isConnected\)target\.focus/);
+ assert.match(js,/resetClanDetailState\(\)/);
+});
+test('loading states and reduced-motion support remain available',()=>{
+ assert.match(html,/class="loading-lines"/);
+ assert.match(html,/aria-busy="true"/);
+ assert.match(html,/prefers-reduced-motion:reduce/);
+ assert.match(js,/is-loading/);
+});
