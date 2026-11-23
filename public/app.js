@@ -87,6 +87,7 @@ async function sync(){
   if(seasonChanged){fdObservedRate=null;performanceData=null;performanceLoadedFor=null;}
   if(Number.isInteger(body.season))lastRankingSeason=body.season;
   clans=enrichRankings(body.clans);
+  updateClanComparisonChoices();
   const leader=clans[0],chaos=clans.find(c=>c.name.toLowerCase()==='chaos');
   officialSeason={season:body.season||null,seasonStatus:body.seasonStatus||'unknown',seasonEndAt:body.seasonEndAt||null,nextSeasonStartAt:body.nextSeasonStartAt||null};
   updateSeasonCountdowns();
@@ -580,3 +581,76 @@ document.querySelector('.main-nav').addEventListener('click',event=>{
 });
 window.addEventListener('hashchange',()=>applyDashboardView(window.location.hash.slice(1),false));
 applyDashboardView(window.location.hash.slice(1)||'overview');
+
+
+let comparisonIdsKey='';
+let comparisonRequestId=0;
+let comparisonAbort=null;
+function updateClanComparisonChoices(){
+ const choices=clans.filter(c=>/^[0-9]{1,7}$/.test(String(c.id||'')));
+ const fingerprint=choices.map(c=>String(c.id)+':'+c.name).join('|');
+ if(fingerprint===comparisonIdsKey)return;
+ const selectA=$('compareClanA'),selectB=$('compareClanB');
+ const priorA=selectA.value,priorB=selectB.value;
+ const options='<option value="">Choose a clan</option>'+choices.map(c=>'<option value="'+escapeHtml(c.id)+'">#'+c.rank+' '+escapeHtml(c.name)+'</option>').join('');
+ selectA.innerHTML=options;selectB.innerHTML=options;
+ const chaos=choices.find(c=>c.name.toLowerCase()==='chaos');
+ const leader=choices.find(c=>String(c.id)!==String(chaos?.id));
+ selectA.value=choices.some(c=>String(c.id)===priorA)?priorA:String(chaos?.id||choices[0]?.id||'');
+ selectB.value=choices.some(c=>String(c.id)===priorB&&priorB!==selectA.value)?priorB:String(leader?.id||'');
+ if(selectA.value===selectB.value)selectB.value='';
+ comparisonIdsKey=fingerprint;
+}
+function comparisonSeriesSVG(points,color,x,y,maxGapMs){
+ return historySegments(points,maxGapMs).map(group=>group.length<2?'':'<polyline class="chart-line" stroke="'+color+'" points="'+group.map(p=>x(p.t).toFixed(2)+','+y(p.v).toFixed(2)).join(' ')+'"/>').join('')+
+ points.map(p=>'<circle class="chart-dots" r="3.2" cx="'+x(p.t).toFixed(2)+'" cy="'+y(p.v).toFixed(2)+'" fill="'+color+'"><title>'+escapeHtml(new Date(p.t).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT · '+fmt(p.v)+' member REP')+'</title></circle>').join('');
+}
+async function loadClanComparison(){
+ const a=$('compareClanA').value,b=$('compareClanB').value;
+ const chart=$('compareClanChart'),message=$('compareClanStatus');
+ if(!a||!b||a===b){
+  if(comparisonAbort)comparisonAbort.abort();
+  chart.textContent=a===b?'Choose two different clans.':'Select two clans to compare.';
+  message.textContent='Comparison requires two different ranked clans.';
+  $('compareClanLegend').textContent='';
+  return;
+ }
+ if(comparisonAbort)comparisonAbort.abort();
+ const controller=new AbortController(),requestId=++comparisonRequestId;
+ comparisonAbort=controller;
+ $('compareClanRefresh').disabled=true;
+ message.textContent='Loading recorded REP samples for both clans…';
+ chart.textContent='Checking saved history…';
+ try{
+  const range=Number($('compareClanRange').value)||6;
+  const get=async id=>{
+   const response=await fetch('/api/performance?id='+encodeURIComponent(id)+(officialSeason.season?'&season='+officialSeason.season:'')+'&t='+Date.now(),{cache:'no-store',signal:controller.signal});
+   const data=await response.json();
+   if(!response.ok)throw Error(data.error||data.detail||'History unavailable for clan '+id);
+   return data;
+  };
+  const [first,second]=await Promise.all([get(a),get(b)]);
+  if(controller.signal.aborted||requestId!==comparisonRequestId)return;
+  const clanA=clans.find(c=>String(c.id)===a),clanB=clans.find(c=>String(c.id)===b);
+  const labelA=clanA?.name||'Clan #'+a,labelB=clanB?.name||'Clan #'+b;
+  const p=historyPoints(first.series||[],'',range),q=historyPoints(second.series||[],'',range);
+  $('compareClanLegend').innerHTML='<span class="chart-legend-item"><i class="chart-dot" aria-hidden="true"></i>'+escapeHtml(labelA)+' ('+p.length+' samples)</span><span class="chart-legend-item"><i class="chart-dot compare" aria-hidden="true"></i>'+escapeHtml(labelB)+' ('+q.length+' samples)</span>';
+  const latestA=p.at(-1),latestB=q.at(-1);
+  const when=point=>point?new Date(point.t).toLocaleTimeString('en-SG',{timeZone:'Asia/Singapore',hour:'2-digit',minute:'2-digit',hour12:false})+' SGT':'not sampled';
+  message.textContent=labelA+': '+(latestA?fmt(latestA.v)+' member REP at '+when(latestA):'No saved samples')+' · '+labelB+': '+(latestB?fmt(latestB.v)+' member REP at '+when(latestB):'No saved samples');
+  if(!p.length&&!q.length){chart.textContent='No recorded data for either clan in this period.';return;}
+  const all=[...p,...q],minT=Math.min(...all.map(x=>x.t)),maxT=Math.max(...all.map(x=>x.t)),min=Math.min(...all.map(x=>x.v)),max=Math.max(...all.map(x=>x.v));
+  const x=t=>45+(t-minT)/Math.max(1,maxT-minT)*700,y=v=>165-(v-min)/Math.max(1,max-min)*143;
+  const time=t=>new Date(t).toLocaleTimeString('en-SG',{timeZone:'Asia/Singapore',hour:'2-digit',minute:'2-digit',hour12:false});
+  const svg='<svg viewBox="0 0 780 195" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="'+escapeHtml(labelA+' and '+labelB+' recorded member REP totals')+'"><line x1="45" y1="165" x2="745" y2="165" stroke="#536a6e"/><line x1="45" y1="22" x2="45" y2="165" stroke="#536a6e"/><text x="7" y="25" fill="#b8cecf" font-size="11">'+fmt(max)+'</text><text x="7" y="158" fill="#b8cecf" font-size="11">'+fmt(min)+'</text>'+comparisonSeriesSVG(p,'#71dfbd',x,y,Math.max(15,Number(first.cycleMinutes)||5)*1.5*60000)+comparisonSeriesSVG(q,'#d6b2f2',x,y,Math.max(15,Number(second.cycleMinutes)||55)*1.5*60000)+'<text x="45" y="187" font-size="11" fill="#a9c0c1">'+escapeHtml(time(minT))+'</text><text x="704" y="187" font-size="11" fill="#a9c0c1">'+escapeHtml(time(maxT))+'</text></svg>';
+  chart.innerHTML=svg;
+ }catch(error){
+  if(!controller.signal.aborted&&requestId===comparisonRequestId){message.textContent='Comparison unavailable: '+error.message;chart.textContent='Could not load saved history.';}
+ }finally{
+  if(requestId===comparisonRequestId){comparisonAbort=null;$('compareClanRefresh').disabled=false;}
+ }
+}
+$('compareClanRefresh').addEventListener('click',loadClanComparison);
+$('compareClanA').addEventListener('change',loadClanComparison);
+$('compareClanB').addEventListener('change',loadClanComparison);
+$('compareClanRange').addEventListener('change',loadClanComparison);
