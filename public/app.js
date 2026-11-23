@@ -62,14 +62,17 @@ function render(){
   const delta=gain===null?'':gain>0?'<small class="positive"> +'+fmt(gain)+'</small>':gain<0?'<small class="negative"> '+fmt(gain)+'</small>':'';
   const change=movement?'<small class="'+(movement>0?'positive':'negative')+'"> '+(movement>0?'▲':'▼')+Math.abs(movement)+'</small>':'';
   return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td>'+link+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'<small class="mobile-gap">'+(c.gapToLeader===0?'Leading':'−'+formatGap(c.gapToLeader)+' to #1')+'</small></td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
- }).join('')||'<tr><td colspan="7">No matching clans</td></tr>';
+ }).join('')||'<tr><td colspan="7" class="empty-results"><strong>No matching clans</strong><p>Try a different name or clear the search to see every ranked clan.</p><button type="button" id="clearClanSearch">Clear search</button></td></tr>';
+ $('rows').setAttribute('aria-busy','false');
+ $('resultsSummary').innerHTML=q?'<strong>'+filtered.length+'</strong> of '+clans.length+' clans matching “'+escapeHtml($('search').value.trim())+'”':'<strong>'+filtered.length+'</strong> ranked clans · select a clan to view members';
 }
 function schedule(ms=POLL_MS){clearTimeout(refreshTimer);if(!document.hidden) refreshTimer=setTimeout(sync,ms);}
 async function sync(){
  if(busy)return;
  busy=true;
  $('refresh').disabled=true;
- status.textContent='● Refreshing…';
+ status.textContent=clans.length?'● Updating rankings…':'● Connecting to rankings…';
+ $('refresh').setAttribute('aria-busy','true');
  const abort=new AbortController();
  const timeout=setTimeout(()=>abort.abort(),14000);
  try{
@@ -111,10 +114,23 @@ async function sync(){
   clearTimeout(timeout);
   busy=false;
   $('refresh').disabled=false;
+  $('refresh').removeAttribute('aria-busy');
+  if(!clans.length)$('rows').setAttribute('aria-busy','false');
   schedule(failures?Math.min(30000,POLL_MS*Math.pow(2,Math.min(failures,3))):POLL_MS);
  }
 }
 $('search').addEventListener('input',render);
+$('rows').addEventListener('click',event=>{
+ if(event.target.closest('#clearClanSearch')){$('search').value='';render();$('search').focus();}
+});
+document.addEventListener('keydown',event=>{
+ if(event.key!=='/'||event.ctrlKey||event.metaKey||event.altKey||$('memberDialog').open)return;
+ const tag=document.activeElement?.tagName;
+ if(['INPUT','TEXTAREA','SELECT'].includes(tag)||document.activeElement?.isContentEditable)return;
+ event.preventDefault();
+ applyDashboardView('rankings',true);
+ $('search').focus();
+});
 $('sort').addEventListener('change',render);
 $('refresh').addEventListener('click',()=>{clearTimeout(refreshTimer);sync();});
 document.addEventListener('visibilitychange',()=>{clearTimeout(refreshTimer);if(!document.hidden)sync();});
@@ -128,6 +144,9 @@ let memberRecords=[];
 let performanceData=null;
 let performanceLoadedFor=null;
 let performanceBusy=false;
+let performanceAbort=null;
+let performanceRequestId=0;
+let drawerReturnFocus=null;
 let fdObservedRate=null;
 let trackingStatusFetchedAt=0;
 async function updateTrackingStatus(id){
@@ -177,15 +196,23 @@ async function loadMembers(){
  }catch(e){if(e.name!=='AbortError'&&!controller.signal.aborted)$('memberStatus').textContent='Member source error: '+e.message;}
  finally{if(memberController===controller)memberController=null;}
 }
+function resetClanDetailState(){
+ if(memberController)memberController.abort();
+ if(performanceAbort)performanceAbort.abort();
+ performanceAbort=null;performanceRequestId++;performanceBusy=false;
+ performanceData=null;performanceLoadedFor=null;
+ memberRecords=[];
+ clearPerformance();
+ $('historyPlot').classList.add('is-loading');
+ $('historyPlot').textContent='Loading recorded REP history…';
+}
 function selectClan(id,name){
  $('memberClanId').value=id;
  selectedClanName=name;
  trackingStatusFetchedAt=0;
  updateTrackingStatus(id);
  $('membersTitle').textContent=name+' · Members';
- memberRecords=[];
- performanceData=null;
- performanceLoadedFor=null;
+ resetClanDetailState();
  $('memberRows').innerHTML='<tr><td colspan="8">Loading '+escapeHtml(name)+' members…</td></tr>';
  if(!$('memberDialog').open)$('memberDialog').showModal();
  loadPerformance();
@@ -195,20 +222,20 @@ $('rows').addEventListener('click',event=>{
  const link=event.target.closest('.clan-member-link');
  if(!link)return;
  event.preventDefault();
+ drawerReturnFocus=link;
  selectClan(link.dataset.clanId,link.dataset.clanName);
 });
 $('memberClose').addEventListener('click',()=>$('memberDialog').close());
 $('memberDialog').addEventListener('click',event=>{if(event.target===$('memberDialog'))$('memberDialog').close();});
-$('memberDialog').addEventListener('close',()=>{if(memberController)memberController.abort();memberController=null;});
+$('memberDialog').addEventListener('close',()=>{if(memberController)memberController.abort();memberController=null;if(performanceAbort)performanceAbort.abort();performanceAbort=null;performanceRequestId++;performanceBusy=false;const target=drawerReturnFocus;drawerReturnFocus=null;if(target?.isConnected)target.focus({preventScroll:true});});
 $('memberLoad').addEventListener('click',()=>{
  const id=$('memberClanId').value.trim();
  selectedClanName=clans.find(c=>String(c.id)===id)?.name||'Clan #'+id;
  trackingStatusFetchedAt=0;
  updateTrackingStatus(id);
  $('membersTitle').textContent=selectedClanName+' · Members';
- memberRecords=[];
- performanceData=null;
- performanceLoadedFor=null;
+ resetClanDetailState();
+ $('memberRows').innerHTML='<tr><td colspan="8">Loading '+escapeHtml(selectedClanName)+' members…</td></tr>';
  loadPerformance();
  loadMembers();
 });
@@ -240,12 +267,15 @@ async function loadPerformance(){
  if(performanceBusy||!$('memberDialog').open)return;
  performanceBusy=true;
  const requestedId=$('memberClanId').value.trim();
+ const requestId=++performanceRequestId;
+ const controller=new AbortController();
+ performanceAbort=controller;
  try{
   const seasonArg=officialSeason.season?'&season='+officialSeason.season:'';
-  const response=await fetch('/api/performance?id='+encodeURIComponent(requestedId)+seasonArg+'&t='+Date.now(),{cache:'no-store'});
+  const response=await fetch('/api/performance?id='+encodeURIComponent(requestedId)+seasonArg+'&t='+Date.now(),{cache:'no-store',signal:controller.signal});
   const data=await response.json();
   if(!response.ok)throw Error(data.detail||data.error||'Performance unavailable');
-  if(!$('memberDialog').open||$('memberClanId').value.trim()!==requestedId)return;
+  if(controller.signal.aborted||requestId!==performanceRequestId||!$('memberDialog').open||$('memberClanId').value.trim()!==requestedId)return;
   performanceData=data;
   if(requestedId==='3')fdObservedRate=data.totalRatePerHour;
   performanceLoadedFor=requestedId;
@@ -256,8 +286,10 @@ async function loadPerformance(){
   drawHistory();
   updateFdPanel();
  }catch(e){
-  if($('memberDialog').open&&$('memberClanId').value.trim()===requestedId)$('historyPlot').textContent='History unavailable: '+e.message;
- }finally{performanceBusy=false;}
+  if(!controller.signal.aborted&&requestId===performanceRequestId&&$('memberDialog').open&&$('memberClanId').value.trim()===requestedId)$('historyPlot').textContent='History unavailable: '+e.message;
+ }finally{
+  if(requestId===performanceRequestId){performanceBusy=false;performanceAbort=null;$('historyPlot').classList.remove('is-loading');}
+ }
 }
 function drawHistory(){
  if(!performanceData)return;
