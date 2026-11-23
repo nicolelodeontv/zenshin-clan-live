@@ -45,3 +45,15 @@ Useful read-only endpoints: `/api/clans`, `/api/members?id=3`, `/api/performance
 `/api/all-clan-status` shows **how many other ranked clans have actually been sampled today**, the latest batch's success/error counts, and the estimated rotation time. A newly deployed tracker initially shows partial coverage. The official game endpoints can fail or change without notice.
 
 The tests in `functions/api/all-clans.test.js` check rotation, retry deduplication, season isolation, and sparse-history behavior. Run `npm test` before deployment.
+
+## Tracking health dashboard
+
+The homepage Tracking health panel reports:
+- CHAOS five-minute scheduled snapshot freshness, last success and the number of **observed** sample gaps longer than ten minutes
+- Rotating all-clan collection freshness, daily coverage and the latest batch
+- Success/failure totals from the **last 24 recorded rotating batches**, plus fetch errors retained in those batch records
+- Sampled clans whose most recent sample exceeds the expected rotation interval plus 15 minutes
+
+The read-only `/api/monitoring-health` endpoint combines today's and yesterday's saved KV snapshots and recent batch records. These are **observations**, not proof of upstream downtime. A clan never sampled is not counted as having failed; a historical gap is only visible between recorded snapshots. Detailed batch diagnostics begin when the feature is deployed, so old failures cannot be reconstructed. The dashboard refreshes every 30 seconds while visible.
+
+The batch recorder preserves previous good clan data even when an entire rotating batch fails. Keeping the last 24 batch records in the same daily all-clan KV value avoids an additional write per run. Automated tests are in `functions/api/monitoring-health.test.js`.
