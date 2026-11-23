@@ -57,3 +57,11 @@ The homepage Tracking health panel reports:
 The read-only `/api/monitoring-health` endpoint combines today's and yesterday's saved KV snapshots and recent batch records. These are **observations**, not proof of upstream downtime. A clan never sampled is not counted as having failed; a historical gap is only visible between recorded snapshots. Detailed batch diagnostics begin when the feature is deployed, so old failures cannot be reconstructed. The dashboard refreshes every 30 seconds while visible.
 
 The batch recorder preserves previous good clan data even when an entire rotating batch fails. Keeping the last 24 batch records in the same daily all-clan KV value avoids an additional write per run. Automated tests are in `functions/api/monitoring-health.test.js`.
+
+## Interactive REP charts (Minimal Dark)
+
+The clan member drawer includes recorded REP history with selectable 1h/3h/6h/24h ranges, optional comparison between two members of the **same clan**, a timeline sample slider (keyboard accessible), click-to-inspect chart samples, and a clear legend. Comparisons use the saved values without interpolating missing intervals.
+
+The Rankings section also includes **Compare clan REP history**. Pick two clans and a range; the browser fetches `/api/performance?id=<clan-id>` for each clan and plots the sum of observed member REP for each saved sample. These are totals of observed member REP values, **not guaranteed official ranked clan reputation**. CHAOS snapshots occur every five minutes, while other clans are sampled in rotation. Series with different sample schedules are not artificially aligned and gaps are not filled. A clan with no saved data displays an explicit unavailable state.
+
+The chart calculation regression tests live in `tests/history-chart.test.js` and the UI smoke tests in `tests/ui-smoke.test.js`. Cloudflare's Browser Rendering daily limit can prevent live UI automation even when GitHub Actions and Wrangler deployment succeed.
