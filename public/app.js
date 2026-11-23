@@ -432,10 +432,11 @@ async function loadMonitoringHealth(){
   $('monitorChaosDetail').textContent=chaos.lastSuccess?'Last success '+healthDate(chaos.lastSuccess):'No successful saved snapshot yet';
   $('monitorRotation').textContent=healthState(rot.state);
   $('monitorRotationDetail').textContent=rot.lastBatch?.attempted?'Latest batch '+healthDate(rot.lastBatch.attempted):'Awaiting first scheduled batch';
-  $('monitorCoverage').textContent=fmt(rot.trackedToday)+(Number.isInteger(rot.totalRankedOtherClans)?' / '+fmt(rot.totalRankedOtherClans):'');
+  const totalClans=Number.isInteger(rot.totalRankedOtherClans)?rot.totalRankedOtherClans:clans.filter(c=>c.id&&String(c.id)!=='3').length;
+  $('monitorCoverage').textContent=fmt(rot.trackedToday)+(totalClans?' / '+fmt(totalClans):'');
   $('monitorCoverageDetail').textContent='Other ranked clans with samples today';
   $('monitorSuccess').textContent=rot.requested>0?Math.round(100*rot.succeeded/rot.requested)+'%':'—';
-  $('monitorSuccessDetail').textContent=rot.succeeded+'/'+rot.requested+' successful fetches in '+rot.attempts+' recorded batches';
+  $('monitorSuccessDetail').textContent=rot.attempts?rot.succeeded+'/'+rot.requested+' successful fetches in '+rot.attempts+' recorded batches':'Detailed batch history starts after this upgrade';
   $('monitorGaps').textContent=chaos.observedGaps+' observed intervals greater than 10 minutes'+(chaos.observedGaps?' · longest '+chaos.largestObservedGapMinutes+' min':'')+' · '+chaos.snapshots+' saved observations across today and yesterday';
   $('monitorStale').innerHTML=(rot.staleClans||[]).map(c=>'<div class="monitor-entry">'+escapeHtml(c.name)+' (#'+escapeHtml(c.id)+') · last recorded '+c.ageMinutes+' min ago</div>').join('')||'<div>No currently observed clans exceed the expected rotation age. Unsampled clans are not counted as failed.</div>';
   $('monitorFailures').innerHTML=(rot.recentFailures||[]).slice(0,12).map(f=>'<div class="monitor-entry">Clan #'+escapeHtml(f.id)+' · '+escapeHtml(f.reason)+' · '+escapeHtml(healthDate(f.at))+'</div>').join('')||'<div>No failures in the recorded batch history.</div>';
