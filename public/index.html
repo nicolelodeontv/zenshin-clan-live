@@ -155,6 +155,24 @@ h1{font-size:34px}
 .monitor-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+/* Mobile member analytics keeps essential columns visible without horizontal page scrolling. */
+@media(max-width:760px){
+ #memberDialog table{min-width:560px}
+ #memberDialog table th:nth-child(3),#memberDialog table td:nth-child(3),
+ #memberDialog table th:nth-child(6),#memberDialog table td:nth-child(6),
+ #memberDialog table th:nth-child(8),#memberDialog table td:nth-child(8){display:none}
+ #memberDialog .tablewrap{overflow-x:auto;scrollbar-color:#385b53 #101820}
+ #memberDialog td,#memberDialog th{padding:11px 9px}
+ #memberDialog td:nth-child(2){min-width:150px;max-width:220px;overflow-wrap:anywhere}
+ #memberDialog .rep-progress{min-width:92px}
+}
+@media(max-width:440px){
+ #memberDialog table{min-width:445px}
+ #memberDialog table th:nth-child(1),#memberDialog table td:nth-child(1){display:none}
+ #memberDialog td:nth-child(2){min-width:125px}
+ #memberDialog .history-plot{height:180px}
+}
 </style></head><body>
 <a class="skip-link" href="#mainContent">Skip to content</a><header class="topbar"><div class="topbar-inner"><div class="identity"><div class="brand"><span class="brand-symbol" aria-hidden="true">N</span><span>NINJA<span>ZENSHIN</span><small>CLAN LIVE</small></span></div></div><nav class="main-nav" aria-label="Dashboard sections"><button class="nav-link is-active" type="button" data-view="overview" aria-pressed="true">Overview</button><button class="nav-link" type="button" data-view="rankings" aria-pressed="false">Rankings</button><button class="nav-link" type="button" data-view="monitoring" aria-pressed="false">Monitoring</button><button class="nav-link" type="button" data-view="seasons" aria-pressed="false">Seasons</button></nav><a class="official-link" href="https://ninjazenshin.online/?panel=clan-ranking" target="_blank" rel="noopener noreferrer">Official site <span aria-hidden="true">↗</span></a></div></header>
 <main id="mainContent"><section class="page-intro" aria-labelledby="pageTitle"><div><div class="eyebrow"><span class="eyebrow-pulse" aria-hidden="true"></span> COMMUNITY DASHBOARD <span class="eyebrow-divider">/</span> SGT (UTC+8)</div><h1 id="pageTitle">Clan overview<span class="title-dot">.</span></h1><p id="pageSubtitle">Live clan rankings, REP progress, and season activity in one place.</p></div><div class="intro-meta"><span class="meta-label">DATA SOURCE</span><span class="meta-value">Ninja Zenshin rankings</span><span class="meta-small">Periodic polling · not a game-server stream</span></div></section><div class="status" id="status">Connecting…</div><div id="error" role="alert"></div>
