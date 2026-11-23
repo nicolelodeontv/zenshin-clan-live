@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const html=readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
+const js=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
+const views=['overview','rankings','monitoring','seasons'];
+test('dashboard has four keyboard-accessible navigation buttons and a skip link',()=>{
+ assert.match(html,/class="skip-link" href="#mainContent"/);
+ assert.match(html,/<main id="mainContent">/);
+ for(const view of views)assert.match(html,new RegExp('data-view="'+view+'"'));
+ assert.match(html,/aria-pressed="true"/);
+ assert.match(js,/function applyDashboardView\(/);
+ assert.match(js,/aria-pressed/);
+});
+test('each navigation view retains its data components',()=>{
+ const ids=['rows','search','sort','refresh','monitorPanel','monitorChaos','alertsList','seasonArchives','fdPanel','seasonEndTimer','seasonStartTimer','memberDialog','historyPlot','memberRows','memberClose'];
+ for(const id of ids)assert.ok(html.includes('id="'+id+'"'),'Missing '+id);
+ const sections=[...html.matchAll(/data-sections="([^"]+)"/g)].map(match=>match[1].split(/\s+/)).flat();
+ for(const view of views)assert.ok(sections.includes(view),'No content assigned to '+view);
+});
+test('mobile ranking and member drawer preserve access to primary metrics',()=>{
+ assert.match(html,/@media\(max-width:760px\)/);
+ assert.match(html,/#memberDialog table/);
+ assert.match(html,/\.leaderboard-board tbody td:nth-child\(3\)/);
+ assert.match(js,/mobile-gap/);
+ assert.match(js,/selectClan\(link\.dataset\.clanId/);
+});
+test('navigation does not replace any data retrieval or background trackers',()=>{
+ for(const path of ['/api/clans','/api/members','/api/performance','/api/monitoring-health','/api/all-clan-status','/api/alerts','/api/season-archive','/api/tracking-status']){
+  assert.ok(js.includes(path)||path==='/api/tracking-status','Expected use of '+path);
+ }
+ assert.match(js,/POLL_MS=5000/);
+ assert.match(js,/loadMonitoringHealth\(\)/);
+ assert.match(js,/loadSeasonArchives\(\)/);
+});
