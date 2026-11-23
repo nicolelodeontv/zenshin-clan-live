@@ -61,7 +61,7 @@ function render(){
   const link=c.id?'<a href="#" class="clan-member-link" data-clan-id="'+c.id+'" data-clan-name="'+escapeHtml(c.name)+'" aria-label="View '+escapeHtml(c.name)+' members">'+escapeHtml(c.name)+'</a>':'<span title="Clan ID unavailable">'+escapeHtml(c.name)+'</span>';
   const delta=gain===null?'':gain>0?'<small class="positive"> +'+fmt(gain)+'</small>':gain<0?'<small class="negative"> '+fmt(gain)+'</small>':'';
   const change=movement?'<small class="'+(movement>0?'positive':'negative')+'"> '+(movement>0?'▲':'▼')+Math.abs(movement)+'</small>':'';
-  return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td>'+link+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'</td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
+  return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td>'+link+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'<small class="mobile-gap">'+(c.gapToLeader===0?'Leading':'−'+formatGap(c.gapToLeader)+' to #1')+'</small></td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
  }).join('')||'<tr><td colspan="7">No matching clans</td></tr>';
 }
 function schedule(ms=POLL_MS){clearTimeout(refreshTimer);if(!document.hidden) refreshTimer=setTimeout(sync,ms);}
@@ -451,3 +451,35 @@ async function loadMonitoringHealth(){
 $('monitorRefresh').addEventListener('click',loadMonitoringHealth);
 loadMonitoringHealth();
 setInterval(loadMonitoringHealth,30000);
+
+
+// Lightweight client-side navigation; data polling continues regardless of the selected section.
+const dashboardViews={
+ overview:{title:'Clan overview',subtitle:'Live clan rankings, REP progress, and season activity in one place.'},
+ rankings:{title:'Clan rankings',subtitle:'Compare clans, search the leaderboard, and open member performance details.'},
+ monitoring:{title:'Tracking health',subtitle:'Collection status, season notices, and recorded data freshness.'},
+ seasons:{title:'Season history',subtitle:'Official season schedule and archived CHAOS results.'}
+};
+function applyDashboardView(view,updateUrl=false){
+ if(!Object.prototype.hasOwnProperty.call(dashboardViews,view))view='overview';
+ const details=dashboardViews[view];
+ document.querySelectorAll('[data-sections]').forEach(section=>{
+  const enabled=(section.dataset.sections||'').split(/\s+/).includes(view);
+  section.classList.toggle('is-hidden',!enabled);
+ });
+ document.querySelectorAll('.nav-link[data-view]').forEach(link=>{
+  const active=link.dataset.view===view;
+  link.classList.toggle('is-active',active);
+  link.setAttribute('aria-pressed',String(active));
+ });
+ $('pageTitle').innerHTML=escapeHtml(details.title)+'<span class="title-dot">.</span>';
+ $('pageSubtitle').textContent=details.subtitle;
+ if(updateUrl&&window.location.hash!=='#'+view)history.replaceState(null,'','#'+view);
+ if(updateUrl&&window.matchMedia('(max-width:760px)').matches)window.scrollTo({top:0,behavior:'smooth'});
+}
+document.querySelector('.main-nav').addEventListener('click',event=>{
+ const button=event.target.closest('button[data-view]');
+ if(button)applyDashboardView(button.dataset.view,true);
+});
+window.addEventListener('hashchange',()=>applyDashboardView(window.location.hash.slice(1),false));
+applyDashboardView(window.location.hash.slice(1)||'overview');
