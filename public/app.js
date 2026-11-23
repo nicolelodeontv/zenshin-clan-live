@@ -1,4 +1,5 @@
 import {enrichRankings,formatGap} from './ranking-math.js';
+import {historyPoints,historySegments,comparisonAt} from './history-chart.js';
 const $=id=>document.getElementById(id);
 const fmt=n=>Number(n||0).toLocaleString('en-US');
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
@@ -260,6 +261,12 @@ function drawMemberRows(){
 }
 function clearPerformance(){
  $('historyPlayer').innerHTML='<option value="">All members</option>';
+ $('historyCompare').innerHTML='<option value="">No comparison</option>';
+ $('historyCompare').disabled=true;
+ $('historyScrub').disabled=true;
+ $('historyInspect').textContent='Select a time to inspect saved REP values.';
+ $('historyInspectCount').textContent='—';
+ $('historyLegend').textContent='';
  $('historyPlot').textContent='Waiting for scheduled snapshots for this clan.';
  $('historyCoverage').textContent='History coverage: —';
  $('historyWindow').textContent='1h: — · 3h: — · 6h: — · 24h: —';
@@ -283,6 +290,7 @@ async function loadPerformance(){
   const selected=$('historyPlayer').value;
   $('historyPlayer').innerHTML='<option value="">All members</option>'+data.members.map(m=>'<option value="'+escapeHtml(m.name)+'">'+escapeHtml(m.name)+'</option>').join('');
   if([...$('historyPlayer').options].some(o=>o.value===selected))$('historyPlayer').value=selected;
+  updateCompareOptions();
   drawMemberRows();
   drawHistory();
   updateFdPanel();
@@ -292,32 +300,88 @@ async function loadPerformance(){
   if(requestId===performanceRequestId){performanceBusy=false;performanceAbort=null;$('historyPlot').classList.remove('is-loading');}
  }
 }
+
+let chartInspectorSamples=[];
+let chartInspectorPrimary=[];
+let chartInspectorSecondary=[];
+let chartInspectorNames=['',''];
+function updateCompareOptions(){
+ const player=$('historyPlayer').value;
+ const current=$('historyCompare').value;
+ const others=(performanceData?.members||[]).filter(m=>m.name!==player);
+ $('historyCompare').innerHTML='<option value="">No comparison</option>'+others.map(m=>'<option value="'+escapeHtml(m.name)+'">'+escapeHtml(m.name)+'</option>').join('');
+ $('historyCompare').disabled=!player;
+ if(player&&others.some(m=>m.name===current))$('historyCompare').value=current;
+}
+function updateChartInspector(){
+ const scrub=$('historyScrub');
+ const t=chartInspectorSamples[Number(scrub.value)];
+ if(!Number.isFinite(t)){ $('historyInspect').textContent='No recorded sample available for this range.';return; }
+ const {primary,secondary,delta}=comparisonAt(chartInspectorPrimary,chartInspectorSecondary,t);
+ const formatSample=p=>p&&Math.abs(p.t-t)<=Math.max(15,Number(performanceData?.cycleMinutes)||15)*60000?fmt(p.v)+' REP':'not sampled nearby';
+ const when=new Date(t).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT';
+ $('historyInspect').textContent=when+' · '+chartInspectorNames[0]+': '+formatSample(primary)+(chartInspectorNames[1]?' · '+chartInspectorNames[1]+': '+formatSample(secondary)+(delta===null?' · no comparable simultaneous sample':' · difference '+(delta>=0?'+':'')+fmt(delta)+' REP'):'');
+ $('historyInspectCount').textContent=(Number(scrub.value)+1)+' / '+chartInspectorSamples.length;
+}
 function drawHistory(){
  if(!performanceData)return;
- const data=performanceData,player=$('historyPlayer').value,range=Number($('historyRange').value)||3;
+ const data=performanceData,player=$('historyPlayer').value,compare=player?$('historyCompare').value:'',range=Number($('historyRange').value)||3;
+ const label=player||'All members';
+ const secondaryLabel=compare&&compare!==player?compare:'';
+ const first=historyPoints(data.series||[],player,range);
+ const second=secondaryLabel?historyPoints(data.series||[],secondaryLabel,range):[];
+ chartInspectorPrimary=first;
+ chartInspectorSecondary=second;
+ chartInspectorNames=[label,secondaryLabel];
+ chartInspectorSamples=[...new Set([...first,...second].map(p=>p.t))].sort((a,b)=>a-b);
+ const scrub=$('historyScrub');
+ const priorIndex=Number(scrub.value);
+ scrub.max=String(Math.max(0,chartInspectorSamples.length-1));
+ scrub.value=String(Math.max(0,Math.min(chartInspectorSamples.length-1,priorIndex||chartInspectorSamples.length-1)));
+ scrub.disabled=!chartInspectorSamples.length;
+ $('historyLegend').innerHTML='<span class="chart-legend-item"><i class="chart-dot" aria-hidden="true"></i>'+escapeHtml(label)+'</span>'+(secondaryLabel?'<span class="chart-legend-item"><i class="chart-dot compare" aria-hidden="true"></i>'+escapeHtml(secondaryLabel)+'</span>':'');
  const metric=player?data.members.find(m=>m.name===player):null;
- const latest=Date.parse(data.lastSnapshot||data.updatedAt);
- const earliest=latest-range*3600000;
- const raw=(data.series||[]).filter(p=>Date.parse(p.at)>=earliest&&Date.parse(p.at)<=latest).map(p=>({t:Date.parse(p.at),v:player?p.values?.[player]:p.total})).filter(p=>Number.isFinite(p.v));
- $('historyCoverage').textContent='Recorded snapshots: '+(data.snapshots||0)+' · coverage '+(data.coverageMinutes||0)+' min · latest '+(data.lastSnapshot?new Date(data.lastSnapshot).toLocaleTimeString('en-SG',{timeZone:'Asia/Singapore',hour:'2-digit',minute:'2-digit',hour12:false})+' SGT':'—');
+ $('historyCoverage').textContent=(data.coverageMode||'Recorded history')+' · '+(data.snapshots||0)+' samples · span '+(data.coverageMinutes||0)+' min · latest '+(data.lastSnapshot?new Date(data.lastSnapshot).toLocaleTimeString('en-SG',{timeZone:'Asia/Singapore',hour:'2-digit',minute:'2-digit',hour12:false})+' SGT':'—');
  const w=metric?.windows;
  $('historyWindow').textContent=w?'1h: '+(w['1h']===null?'—':'+'+fmt(w['1h']))+' · 3h: '+(w['3h']===null?'—':'+'+fmt(w['3h']))+' · 6h: '+(w['6h']===null?'—':'+'+fmt(w['6h']))+' · 24h: '+(w['24h']===null?'—':'+'+fmt(w['24h'])):'Select a player for observed 1h / 3h / 6h / 24h gains';
  const plot=$('historyPlot');
- if(raw.length<2){plot.textContent='At least two saved samples are needed for this chart. Current sample count: '+raw.length+'.';return;}
- const min=Math.min(...raw.map(p=>p.v)),max=Math.max(...raw.map(p=>p.v));
- const span=Math.max(1,max-min),x0=45,x1=745,y0=20,y1=166;
- const x=t=>x0+(t-earliest)/(latest-earliest||1)*(x1-x0);
- const y=v=>y1-(v-min)/span*(y1-y0);
- const series=[];let group=[];
- for(const point of raw){
-  if(group.length&&point.t-group.at(-1).t>15*60000){if(group.length>1)series.push(group);group=[];}
-  group.push(point);
+ if(!first.length&&!second.length){
+  plot.textContent='No saved REP observations for this time range.';
+  updateChartInspector();
+  return;
  }
- if(group.length>1)series.push(group);
- const paths=series.map(points=>'<polyline points="'+points.map(p=>x(p.t).toFixed(1)+','+y(p.v).toFixed(1)).join(' ')+'" fill="none" stroke="#67e6c2" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>').join('');
- const dots=raw.map(p=>'<circle cx="'+x(p.t).toFixed(1)+'" cy="'+y(p.v).toFixed(1)+'" r="3" fill="#67e6c2"><title>'+new Date(p.t).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT: '+fmt(p.v)+' REP</title></circle>').join('');
- plot.innerHTML='<svg viewBox="0 0 780 195" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="'+(player?escapeHtml(player):'CHAOS total')+' REP from recorded snapshots"><line x1="45" y1="166" x2="745" y2="166" stroke="#54708b"/><line x1="45" y1="20" x2="45" y2="166" stroke="#54708b"/><text x="6" y="27" fill="#b5c5d7" font-size="12">'+fmt(max)+'</text><text x="6" y="161" fill="#b5c5d7" font-size="12">'+fmt(min)+'</text>'+paths+dots+'<text x="45" y="186" fill="#b5c5d7" font-size="12">'+new Date(earliest).toLocaleTimeString('en-SG',{timeZone:'Asia/Singapore',hour:'2-digit',minute:'2-digit',hour12:false})+'</text><text x="706" y="186" fill="#b5c5d7" font-size="12">'+new Date(latest).toLocaleTimeString('en-SG',{timeZone:'Asia/Singapore',hour:'2-digit',minute:'2-digit',hour12:false})+'</text></svg>';
+ const all=[...first,...second],min=Math.min(...all.map(p=>p.v)),max=Math.max(...all.map(p=>p.v));
+ const minT=Math.min(...all.map(p=>p.t)),maxT=Math.max(...all.map(p=>p.t));
+ const span=Math.max(1,max-min),timeSpan=Math.max(1,maxT-minT);
+ const x=t=>45+(t-minT)/timeSpan*700;
+ const y=v=>166-(v-min)/span*144;
+ const gapMs=Math.max(15,Number(data.cycleMinutes)||15)*1.5*60000;
+ const line=(points,color)=>historySegments(points,gapMs).map(segment=>{
+  if(segment.length===1)return '';
+  return '<polyline class="chart-line" points="'+segment.map(p=>x(p.t).toFixed(2)+','+y(p.v).toFixed(2)).join(' ')+'" stroke="'+color+'"/>';
+ }).join('');
+ const circles=(points,color)=>points.map(p=>'<circle class="chart-dots" cx="'+x(p.t).toFixed(2)+'" cy="'+y(p.v).toFixed(2)+'" r="3.3" fill="'+color+'"><title>'+escapeHtml(new Date(p.t).toLocaleString('en-SG',{timeZone:'Asia/Singapore',hour12:false})+' SGT: '+fmt(p.v)+' REP')+'</title></circle>').join('');
+ const timeLabel=t=>new Date(t).toLocaleTimeString('en-SG',{timeZone:'Asia/Singapore',hour:'2-digit',minute:'2-digit',hour12:false});
+ plot.innerHTML='<svg viewBox="0 0 780 195" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="'+escapeHtml(label+(secondaryLabel?' compared with '+secondaryLabel:''))+' recorded REP chart"><line x1="45" y1="166" x2="745" y2="166" stroke="#526c6c"/><line x1="45" y1="22" x2="45" y2="166" stroke="#526c6c"/><text x="7" y="27" font-size="11" fill="#b4cdcd">'+fmt(max)+'</text><text x="7" y="159" font-size="11" fill="#b4cdcd">'+fmt(min)+'</text>'+line(first,'#71dfbd')+line(second,'#d6b2f2')+circles(first,'#71dfbd')+circles(second,'#d6b2f2')+'<text x="45" y="186" font-size="11" fill="#b4cdcd">'+escapeHtml(timeLabel(minT))+'</text><text x="704" y="186" font-size="11" fill="#b4cdcd">'+escapeHtml(timeLabel(maxT))+'</text></svg>';
+ plot.dataset.startTime=String(minT);
+ plot.dataset.endTime=String(maxT);
+ updateChartInspector();
 }
+$('historyScrub').addEventListener('input',updateChartInspector);
+$('historyCompare').addEventListener('change',drawHistory);
+$('historyPlayer').addEventListener('change',()=>{updateCompareOptions();drawHistory();});
+$('historyPlot').addEventListener('click',event=>{
+ const svg=event.target.closest('svg');
+ if(!svg||!chartInspectorSamples.length)return;
+ const rect=svg.getBoundingClientRect();
+ const fraction=Math.max(0,Math.min(1,(event.clientX-rect.left)/Math.max(1,rect.width)));
+ const t=Number($('historyPlot').dataset.startTime)+fraction*(Number($('historyPlot').dataset.endTime)-Number($('historyPlot').dataset.startTime));
+ let nearest=0;
+ for(let i=1;i<chartInspectorSamples.length;i++)if(Math.abs(chartInspectorSamples[i]-t)<Math.abs(chartInspectorSamples[nearest]-t))nearest=i;
+ $('historyScrub').value=String(nearest);
+ updateChartInspector();
+});
+
 function updateFdPanel(){
  const chaos=clans.find(c=>c.name.toLowerCase()==='chaos');
  if(!chaos)return;
@@ -335,7 +399,7 @@ function updateFdPanel(){
  $('fdMessage').textContent='What-if only: at the observed '+fmt(Math.round(rate))+' REP/hr, CHAOS would gain about '+fmt(Math.round(possible))+' REP over '+hours+' hours. '+(possible>=gap?'This could close the current '+fmt(gap)+' REP gap if the clan above stops gaining.':'This would leave about '+fmt(Math.ceil(gap-possible))+' REP of today’s gap if the clan above stops gaining.')+' No opponent rate or final rank is predicted.';
 }
 $('fdHours').addEventListener('input',updateFdPanel);
-$('historyPlayer').addEventListener('change',drawHistory);
+
 $('historyRange').addEventListener('change',drawHistory);
 
 let fdPaceBusy=false;
