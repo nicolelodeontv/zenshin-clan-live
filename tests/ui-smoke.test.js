@@ -54,3 +54,12 @@ test('loading states and reduced-motion support remain available',()=>{
  assert.match(html,/prefers-reduced-motion:reduce/);
  assert.match(js,/is-loading/);
 });
+
+test('REP chart controls support comparisons and accessible sample inspection',()=>{
+ for(const id of ['historyCompare','historyScrub','historyInspect','historyInspectCount','historyLegend'])assert.ok(html.includes('id="'+id+'"'),id);
+ assert.match(js,/function updateCompareOptions\(/);
+ assert.match(js,/function updateChartInspector\(/);
+ assert.match(js,/historySegments\(points,gapMs\)/);
+ assert.match(js,/\$\('historyScrub'\)\.addEventListener\('input'/);
+ assert.match(js,/\$\('historyPlot'\)\.addEventListener\('click'/);
+});
