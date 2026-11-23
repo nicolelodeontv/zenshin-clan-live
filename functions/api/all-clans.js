@@ -30,7 +30,11 @@ export function appendRotatingSnapshots(stored,results,metadata){
   data.clans[id]={id,name:result.name,samples:series,lastSampleAt:metadata.at,memberCount:Object.keys(result.values).length};
  }
  data.updatedAt=metadata.at;
- data.lastBatch={attempted:metadata.at,requested:metadata.requested,success:results.length,errors:metadata.errors||[],cycleMinutes:metadata.cycleMinutes};
+ const batch={attempted:metadata.at,requested:metadata.requested,success:results.length,errors:metadata.errors||[],cycleMinutes:metadata.cycleMinutes,totalCandidates:metadata.totalCandidates??null};
+ data.lastBatch=batch;
+ const recent=Array.isArray(data.recentBatches)?data.recentBatches:[];
+ const bucket=Math.floor(Date.parse(metadata.at)/INTERVAL);
+ data.recentBatches=[...recent.filter(b=>Math.floor(Date.parse(b.attempted)/INTERVAL)!==bucket),batch].sort((a,b)=>Date.parse(a.attempted)-Date.parse(b.attempted)).slice(-24);
  return data;
 }
 export async function readAllClanDay(env,day,season){
@@ -67,10 +71,9 @@ export async function captureRotatingClans(env,now,official,season){
   }));
   results.push(...sampled.filter(Boolean));
  }
- // Don't overwrite the last good snapshot with an all-failed batch.
- if(!results.length)return {date:day,season,requested:selected.length,saved:0,errors,cycleMinutes:rotation.cycleMinutes};
+ // Persist the batch outcome even when every request failed, keeping prior successful samples intact.
  const stored=await readAllClanDay(env,day,season);
- const merged=appendRotatingSnapshots(stored,results,{day,season,at,requested:selected.length,errors,cycleMinutes:rotation.cycleMinutes});
+ const merged=appendRotatingSnapshots(stored,results,{day,season,at,requested:selected.length,errors,cycleMinutes:rotation.cycleMinutes,totalCandidates:rotation.total});
  await env.GAINS.put(allClanKey(day,season),JSON.stringify(merged),{expirationTtl:RETENTION});
  return {date:day,season,requested:selected.length,saved:results.length,errors,cycleMinutes:rotation.cycleMinutes,trackedToday:Object.keys(merged.clans).length};
 }
