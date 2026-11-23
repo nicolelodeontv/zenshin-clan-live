@@ -415,3 +415,38 @@ async function refreshAllCoverage(){
 }
 refreshAllCoverage();
 setInterval(refreshAllCoverage,30000);
+
+
+let monitoringBusy=false;
+const healthDate=iso=>iso&&Number.isFinite(Date.parse(iso))?sgtTime(iso):'No recorded sample';
+const healthState=state=>({'healthy':'Healthy','stale':'Delayed','error':'Failed','paused':'Paused','failed':'Batch failed','no-data':'No data','not-started':'Awaiting first batch'})[state]||'Unknown';
+async function loadMonitoringHealth(){
+ if(document.hidden||monitoringBusy)return;
+ monitoringBusy=true;
+ try{
+  const response=await fetch('/api/monitoring-health',{cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok||!data.chaos||!data.rotating)throw Error(data.detail||data.error||'Invalid health response');
+  const chaos=data.chaos,rot=data.rotating;
+  $('monitorChaos').textContent=healthState(chaos.state);
+  $('monitorChaosDetail').textContent=chaos.lastSuccess?'Last success '+healthDate(chaos.lastSuccess):'No successful saved snapshot yet';
+  $('monitorRotation').textContent=healthState(rot.state);
+  $('monitorRotationDetail').textContent=rot.lastBatch?.attempted?'Latest batch '+healthDate(rot.lastBatch.attempted):'Awaiting first scheduled batch';
+  $('monitorCoverage').textContent=fmt(rot.trackedToday)+(Number.isInteger(rot.totalRankedOtherClans)?' / '+fmt(rot.totalRankedOtherClans):'');
+  $('monitorCoverageDetail').textContent='Other ranked clans with samples today';
+  $('monitorSuccess').textContent=rot.requested>0?Math.round(100*rot.succeeded/rot.requested)+'%':'—';
+  $('monitorSuccessDetail').textContent=rot.succeeded+'/'+rot.requested+' successful fetches in '+rot.attempts+' recorded batches';
+  $('monitorGaps').textContent=chaos.observedGaps+' observed intervals greater than 10 minutes'+(chaos.observedGaps?' · longest '+chaos.largestObservedGapMinutes+' min':'')+' · '+chaos.snapshots+' saved observations across today and yesterday';
+  $('monitorStale').innerHTML=(rot.staleClans||[]).map(c=>'<div class="monitor-entry">'+escapeHtml(c.name)+' (#'+escapeHtml(c.id)+') · last recorded '+c.ageMinutes+' min ago</div>').join('')||'<div>No currently observed clans exceed the expected rotation age. Unsampled clans are not counted as failed.</div>';
+  $('monitorFailures').innerHTML=(rot.recentFailures||[]).slice(0,12).map(f=>'<div class="monitor-entry">Clan #'+escapeHtml(f.id)+' · '+escapeHtml(f.reason)+' · '+escapeHtml(healthDate(f.at))+'</div>').join('')||'<div>No failures in the recorded batch history.</div>';
+  $('monitorLimitations').textContent=data.limitations||'Missing samples cannot be reconstructed.';
+  $('monitorUpdated').textContent='Report generated '+healthDate(data.generatedAt)+' · observations are read-only and may lag behind the game';
+ }catch(e){
+  $('monitorChaos').textContent='Unavailable';
+  $('monitorRotation').textContent='Unavailable';
+  $('monitorUpdated').textContent='Tracking health temporarily unavailable: '+e.message;
+ }finally{monitoringBusy=false;}
+}
+$('monitorRefresh').addEventListener('click',loadMonitoringHealth);
+loadMonitoringHealth();
+setInterval(loadMonitoringHealth,30000);
