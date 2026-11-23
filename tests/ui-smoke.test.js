@@ -63,3 +63,11 @@ test('REP chart controls support comparisons and accessible sample inspection',(
  assert.match(js,/\$\('historyScrub'\)\.addEventListener\('input'/);
  assert.match(js,/\$\('historyPlot'\)\.addEventListener\('click'/);
 });
+
+test('rankings can compare recorded REP totals from two clans',()=>{
+ for(const id of ['clanComparePanel','compareClanA','compareClanB','compareClanRange','compareClanChart','compareClanLegend','compareClanRefresh'])assert.ok(html.includes('id="'+id+'"'),'Missing '+id);
+ assert.match(js,/function updateClanComparisonChoices\(/);
+ assert.match(js,/async function loadClanComparison\(/);
+ assert.match(js,/Promise\.all\(\[get\(a\),get\(b\)\]\)/);
+ assert.match(js,/historySegments\(points,maxGapMs\)/);
+});
