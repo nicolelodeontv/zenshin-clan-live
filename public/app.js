@@ -64,7 +64,8 @@ function render(){
   return '<tr class="'+(chaos?'chaos':'')+'"><td>#'+c.rank+change+'</td><td>'+link+(chaos?' ★':'')+'</td><td>'+escapeHtml(c.master)+'</td><td>'+(c.members??'—')+' / '+(c.capacity??'—')+'</td><td>'+fmt(c.reputation)+delta+'<small class="mobile-gap">'+(c.gapToLeader===0?'Leading':'−'+formatGap(c.gapToLeader)+' to #1')+'</small></td><td class="gap">'+formatGap(c.gapToAbove)+'</td><td class="gap">'+formatGap(c.gapToLeader)+'</td></tr>';
  }).join('')||'<tr><td colspan="7" class="empty-results"><strong>No matching clans</strong><p>Try a different name or clear the search to see every ranked clan.</p><button type="button" id="clearClanSearch">Clear search</button></td></tr>';
  $('rows').setAttribute('aria-busy','false');
- $('resultsSummary').innerHTML=q?'<strong>'+filtered.length+'</strong> of '+clans.length+' clans matching “'+escapeHtml($('search').value.trim())+'”':'<strong>'+filtered.length+'</strong> ranked clans · select a clan to view members';
+ const summary=q?'<strong>'+filtered.length+'</strong> of '+clans.length+' clans matching “'+escapeHtml($('search').value.trim())+'”':'<strong>'+filtered.length+'</strong> ranked clans · select a clan to view members';
+ if($('resultsSummary').innerHTML!==summary)$('resultsSummary').innerHTML=summary;
 }
 function schedule(ms=POLL_MS){clearTimeout(refreshTimer);if(!document.hidden) refreshTimer=setTimeout(sync,ms);}
 async function sync(){
